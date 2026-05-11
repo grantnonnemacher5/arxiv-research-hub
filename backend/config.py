@@ -51,8 +51,13 @@ OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o")
 CLASSIFIER_THRESHOLD = float(os.getenv("CLASSIFIER_THRESHOLD", "0.35"))
 SCHEDULE_MINUTE = int(os.getenv("SCHEDULE_MINUTE", "0"))
 
+# Default includes the live Vercel origin. If you set CORS_ORIGINS on Render, it replaces this entire list—
+# include https://arxiv-research-hub.vercel.app there or leave CORS_ORIGINS unset to use these defaults.
 CORS_ORIGINS = [
     o.strip()
-    for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+    for o in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,https://arxiv-research-hub.vercel.app",
+    ).split(",")
     if o.strip()
 ]
