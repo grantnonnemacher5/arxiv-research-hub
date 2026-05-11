@@ -1,7 +1,10 @@
-# Secrets — do not commit `.env` or other files with real keys
+# Secrets — do not commit env files (use Render / Vercel dashboards)
+
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
 example.env
 plan.md
 **/todo.txt

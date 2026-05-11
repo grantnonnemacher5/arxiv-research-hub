@@ -54,6 +54,8 @@ npm run dev
 
 UI: http://localhost:5173. If your API isn’t on port 8000, tell Vite where it is, e.g. `VITE_API_BASE_URL=http://127.0.0.1:8001 npm run dev`.
 
+**Vercel (production):** Prefer **`VITE_API_BASE_URL`** in the Vercel project (Settings → Environment Variables) set to your Render URL, then redeploy. If that env never applies to the build, `frontend/src/api.js` falls back to **`PRODUCTION_API_FALLBACK`** in production only—edit that constant if your Render hostname changes. 
+
 Optional—one-off ingest from the shell:
 
 ```bash
