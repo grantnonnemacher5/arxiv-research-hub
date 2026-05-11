@@ -32,6 +32,12 @@ export function friendlyErrorMessage(raw) {
     return '⚠️ A required API key is missing. Check your backend `.env` file.'
   }
   if (lower.includes('failed to fetch') || lower.includes('networkerror')) {
+    if (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app')) {
+      return (
+        'Cannot reach the API from this site (often CORS or a sleeping Render instance). ' +
+        'Confirm Render has deployed and set CORS_ORIGINS to this Vercel URL, then redeploy the API.'
+      )
+    }
     return 'Could not reach the API. Is the backend running on port 8000?'
   }
 
