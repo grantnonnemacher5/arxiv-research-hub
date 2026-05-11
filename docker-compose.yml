@@ -1,7 +1,7 @@
 # Local PostgreSQL — mirrors how production (Neon / Supabase / Railway) connects.
 # Usage:
 #   docker compose up -d
-#   cp .env.example .env   # set DATABASE_URL to the compose URL below
+#   Set DATABASE_URL in project-root .env (see README; match POSTGRES_* below).
 #   cd backend && uvicorn main:app --reload
 services:
   postgres:

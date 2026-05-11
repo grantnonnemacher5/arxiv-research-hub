@@ -1,4 +1,4 @@
-# Secrets — do not commit real env files (.env.example stays tracked as a template)
+# Secrets — do not commit `.env` or other files with real keys
 .env
 .env.local
 .env.*.local
