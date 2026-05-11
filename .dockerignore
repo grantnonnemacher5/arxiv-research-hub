@@ -1,0 +1,14 @@
+.git
+.venv
+venv
+__pycache__
+*.py[cod]
+*.db
+.env
+.dev-*.log
+.dev-*.pid
+reports
+frontend/node_modules
+dist
+build
+*.egg-info

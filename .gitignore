@@ -1,4 +1,8 @@
+# Secrets — do not commit real env files (.env.example stays tracked as a template)
 .env
+.env.local
+.env.*.local
+example.env
 plan.md
 **/todo.txt
 .venv/

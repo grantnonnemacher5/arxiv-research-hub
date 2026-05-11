@@ -1,5 +1,5 @@
 """
-CLI entrypoint for the full ingest pipeline (arXiv → dedupe → PDF → classify → SQLite),
+CLI entrypoint for the full ingest pipeline (arXiv → dedupe → PDF → classify → DB),
 plus classification backfill for older rows missing buckets.
 
 Run from repo root:  python backend/ingest_once.py

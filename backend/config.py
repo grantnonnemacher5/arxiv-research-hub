@@ -3,14 +3,26 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
-
 _BACKEND_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _BACKEND_DIR.parent
+# Repo-root .env (works when cwd is backend/ or project root)
+load_dotenv(_PROJECT_ROOT / ".env")
+load_dotenv(_BACKEND_DIR / ".env")
+load_dotenv()
 
-# Default DB lives next to backend code when cwd is backend/
+# Database
+# - Local / MVP (default): SQLite file next to this package — no env needed.
+# - Production: set DATABASE_URL to PostgreSQL, e.g. from Neon, Supabase, Railway:
+#     postgresql+psycopg2://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
+#   Install deps with `pip install -r requirements.txt` (includes psycopg2-binary).
+#   Deploy with a fresh DB: run the API once so tables are created (init_db), or use migrations later.
 _default_db = _BACKEND_DIR / "research_hub.db"
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{_default_db}")
+_raw_url = os.getenv("DATABASE_URL", f"sqlite:///{_default_db}")
+# Some hosts still issue postgres:// URLs; SQLAlchemy expects postgresql://
+if _raw_url.startswith("postgres://"):
+    DATABASE_URL = "postgresql://" + _raw_url[len("postgres://") :]
+else:
+    DATABASE_URL = _raw_url
 
 ARXIV_MAX_RESULTS = int(os.getenv("ARXIV_MAX_RESULTS", "50"))
 SCHEDULE_HOUR = int(os.getenv("SCHEDULE_HOUR", "8"))

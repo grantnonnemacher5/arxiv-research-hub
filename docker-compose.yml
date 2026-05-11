@@ -1,0 +1,25 @@
+# Local PostgreSQL — mirrors how production (Neon / Supabase / Railway) connects.
+# Usage:
+#   docker compose up -d
+#   cp .env.example .env   # set DATABASE_URL to the compose URL below
+#   cd backend && uvicorn main:app --reload
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: arxiv_mvp_postgres
+    environment:
+      POSTGRES_USER: arxiv
+      POSTGRES_PASSWORD: arxiv_local_dev
+      POSTGRES_DB: research_hub
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arxiv -d research_hub"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import Date, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from classifier import BUCKET_DESCRIPTIONS
@@ -34,6 +34,14 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AI Research Knowledge Hub", lifespan=lifespan)
+
+
+@app.get("/health")
+def health():
+    """Liveness check for load balancers (Render, etc.). No DB or OpenAI required."""
+    return {"status": "ok"}
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -60,7 +68,7 @@ def stats(db: Session = Depends(get_db)):
         db.scalar(
             select(func.count())
             .select_from(Paper)
-            .where(func.date(Paper.created_at) == today)
+            .where(cast(Paper.created_at, Date) == today)
         )
         or 0
     )

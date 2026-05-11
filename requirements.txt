@@ -8,3 +8,4 @@ requests
 httpx
 numpy
 python-dotenv
+psycopg2-binary
