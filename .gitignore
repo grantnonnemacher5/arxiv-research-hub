@@ -1,0 +1,10 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.db
+research_hub.db
+reports/
+*.html
+.DS_Store
