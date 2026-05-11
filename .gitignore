@@ -1,4 +1,5 @@
 .env
+plan.md
 .venv/
 venv/
 __pycache__/
@@ -6,8 +7,12 @@ __pycache__/
 *.db
 research_hub.db
 reports/
-*.html
+node_modules/
 .DS_Store
+.dev-backend.log
+.dev-frontend.log
+.dev-backend.pid
+.dev-frontend.pid
 *.egg-info/
 .eggs/
 dist/

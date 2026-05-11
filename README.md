@@ -51,7 +51,6 @@ arxive_mvp/
 ├── backend/           # FastAPI app, pipeline, SQLite models
 ├── frontend/          # Vite + React UI
 ├── reports/           # Generated HTML (created at runtime; gitignored)
-├── plan.md
 ├── requirements.txt
 ├── README.md
 └── .gitignore
