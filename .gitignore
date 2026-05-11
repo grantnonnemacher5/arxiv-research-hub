@@ -8,3 +8,7 @@ research_hub.db
 reports/
 *.html
 .DS_Store
+*.egg-info/
+.eggs/
+dist/
+build/
