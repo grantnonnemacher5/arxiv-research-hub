@@ -1,5 +1,6 @@
 .env
 plan.md
+**/todo.txt
 .venv/
 venv/
 __pycache__/

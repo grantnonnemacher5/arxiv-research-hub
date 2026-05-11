@@ -1,12 +1,12 @@
-# arxive_mvp
+# arxiv-research-hub
 
-Repo: [https://github.com/Yonas1219/arxive_mvp](https://github.com/Yonas1219/arxive_mvp)
+Repo: [https://github.com/Yonas1219/arxiv-research-hub](https://github.com/Yonas1219/arxiv-research-hub)
 
 ## Setup
 
 ```bash
-git clone https://github.com/Yonas1219/arxive_mvp.git
-cd arxive_mvp
+git clone https://github.com/Yonas1219/arxiv-research-hub.git
+cd arxiv-research-hub
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -47,7 +47,7 @@ python ingest_once.py
 ## Folder structure
 
 ```
-arxive_mvp/
+arxiv-research-hub/
 ├── backend/           # FastAPI app, pipeline, SQLite models
 ├── frontend/          # Vite + React UI
 ├── reports/           # Generated HTML (created at runtime; gitignored)
