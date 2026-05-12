@@ -15,7 +15,7 @@ from classifier import (
     paper_text_for_embedding,
 )
 from config import OPENAI_API_KEY
-from database import Paper, SessionLocal, init_db
+from database import Paper, SessionLocal, init_db, strip_nul_bytes
 from deduplicator import is_duplicate
 from pdf_extractor import extract_text_from_pdf
 
@@ -46,7 +46,7 @@ def backfill_classifications(db: Session) -> int:
         if not text:
             continue
         buckets, emb = classify_paper_text(text)
-        row.buckets = buckets_to_csv(buckets)
+        row.buckets = strip_nul_bytes(buckets_to_csv(buckets)) or ""
         row.embedding = emb if emb else None
         updated += 1
     if updated:
@@ -73,17 +73,18 @@ def run_full_pipeline(max_results_per_query: int | None = None) -> dict[str, Any
                 continue
             pdf_url = p.get("pdf_url") or ""
             full_text = extract_text_from_pdf(pdf_url) if pdf_url else None
+            full_text = strip_nul_bytes(full_text)
             text = paper_text_for_embedding(full_text, p.get("abstract") or "")
             bucket_str, emb = _classify_and_pack(text)
             row = Paper(
-                arxiv_id=p["arxiv_id"],
-                title=p["title"],
-                authors=p["authors"],
-                abstract=p.get("abstract") or "",
+                arxiv_id=strip_nul_bytes(p["arxiv_id"]) or "",
+                title=strip_nul_bytes(p["title"]) or "",
+                authors=strip_nul_bytes(p["authors"]) or "",
+                abstract=strip_nul_bytes(p.get("abstract") or "") or "",
                 full_text=full_text,
-                pdf_url=pdf_url,
+                pdf_url=strip_nul_bytes(pdf_url) or "",
                 published_date=p.get("published_date"),
-                buckets=bucket_str,
+                buckets=strip_nul_bytes(bucket_str) or "",
                 embedding=emb,
             )
             db.add(row)

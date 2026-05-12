@@ -7,6 +7,13 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from config import DATABASE_URL
 
 
+def strip_nul_bytes(text: str | None) -> str | None:
+    """PostgreSQL rejects NUL (0x00) in text; SQLite often accepts it. PDFs/XML can contain NUL."""
+    if text is None:
+        return None
+    return text.replace("\x00", "") if "\x00" in text else text
+
+
 class Base(DeclarativeBase):
     pass
 
