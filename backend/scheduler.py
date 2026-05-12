@@ -16,7 +16,7 @@ scheduler = BackgroundScheduler()
 
 def _job() -> None:
     try:
-        stats = run_full_pipeline()
+        stats = run_full_pipeline(trigger="scheduled")
         logger.info("Scheduled pipeline finished: %s", stats)
     except Exception:
         logger.exception("Scheduled pipeline failed")

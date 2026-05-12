@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { getStats, runPipeline } from '../api'
 import { friendlyErrorMessage } from '../lib/apiErrors.js'
 import PaperList from './PaperList.jsx'
+import PaperSearch from './PaperSearch.jsx'
+import PipelineRuns from './PipelineRuns.jsx'
 import ReportButtons from './ReportButtons.jsx'
 import ReportViewer from './ReportViewer.jsx'
 
@@ -90,6 +92,14 @@ export default function Dashboard() {
         <Stat variant="purple" label="General AI" value={buckets['General AI'] ?? '—'} />
         <Stat variant="orange" label="Agents" value={buckets['Autonomous Agents'] ?? '—'} />
         <Stat variant="teal" label="Finance" value={buckets['AI x Finance'] ?? '—'} />
+      </div>
+
+      <div className="mb-10">
+        <PaperSearch />
+      </div>
+
+      <div className="mb-10">
+        <PipelineRuns refreshKey={refreshKey} />
       </div>
 
       <section className="mb-10 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">

@@ -10,6 +10,7 @@ from openai import OpenAI
 
 from config import (
     CLASSIFIER_THRESHOLD,
+    CLASSIFY_FROM_ABSTRACT,
     OPENAI_API_KEY,
     OPENAI_EMBED_MODEL,
 )
@@ -86,6 +87,13 @@ def paper_text_for_embedding(full_text: str | None, abstract: str) -> str:
     return raw[:30000]
 
 
+def classification_input_text(full_text: str | None, abstract: str) -> str:
+    """Text sent to the embedding model for bucket labels (cost-aware when abstract-only)."""
+    if CLASSIFY_FROM_ABSTRACT:
+        return (abstract or "").strip()[:12000]
+    return paper_text_for_embedding(full_text, abstract)
+
+
 def classify_paper_text(text: str) -> tuple[list[str], bytes]:
     """
     Returns (bucket names, float32 embedding bytes for the paper text).
@@ -110,3 +118,11 @@ def embedding_from_blob(blob: bytes | None) -> np.ndarray | None:
     if not blob:
         return None
     return np.frombuffer(blob, dtype=np.float32)
+
+
+def embed_query_text(text: str) -> np.ndarray:
+    """Single query vector for semantic / hybrid search (same model as paper classification)."""
+    t = (text or "").strip()[:12000]
+    if not t:
+        raise ValueError("Search query is empty")
+    return np.asarray(_embed_batch([t])[0], dtype=np.float64)

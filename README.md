@@ -19,9 +19,12 @@ Create a `.env` file at the repo root for secrets—never commit it. Variable na
 
 ### Database
 
-Out of the box the API uses SQLite (`backend/research_hub.db`). No extra setup unless you want Postgres.
+- **Local default:** SQLite at `backend/research_hub.db` (no env needed).
+- **Production (current):** **Neon Postgres** — set `DATABASE_URL` on the API host (e.g. Render) to the connection string from the Neon dashboard. Prefer URLs that include **`sslmode=require`** when Neon recommends SSL. Driver form: `postgresql+psycopg2://...` (see `backend/config.py`; bare `postgres://` is normalized).
 
-For Postgres locally, start Compose and add `DATABASE_URL` to `.env` so it matches `docker-compose.yml` (user `arxiv`, db `research_hub`, password in compose file):
+On first startup with a new empty database, `init_db()` runs **`create_all`** so tables (`papers`, `reports`, `pipeline_runs`, `report_llm_cache`, …) appear automatically—no manual SQL migration for the MVP.
+
+For Postgres **locally** only, you can use Compose and match `docker-compose.yml`:
 
 ```bash
 docker compose up -d
@@ -33,7 +36,7 @@ Example line for `.env` when using the bundled Compose Postgres:
 DATABASE_URL=postgresql+psycopg2://arxiv:arxiv_local_dev@127.0.0.1:5432/research_hub
 ```
 
-After deploy, hosted providers (Neon, Supabase, Railway, …) give you a URI—use that same `DATABASE_URL` name in Render or wherever the API runs. Tables are created when the app starts (`init_db`).
+Other hosted providers (Supabase, Railway, …) use the same **`DATABASE_URL`** pattern on the API service.
 
 ## Run
 

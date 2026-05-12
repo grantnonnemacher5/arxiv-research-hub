@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import html
+import json
 import logging
 import re
 from collections import defaultdict
@@ -14,12 +16,68 @@ from sqlalchemy import Date, cast, func, select
 from sqlalchemy.orm import Session
 
 from classifier import BUCKET_DESCRIPTIONS
-from config import OPENAI_API_KEY, OPENAI_CHAT_MODEL, REPORTS_DIR
-from database import Paper, Report
+from config import OPENAI_API_KEY, OPENAI_CHAT_MODEL, REPORTS_DIR, REPORT_SUMMARY_CACHE
+from database import Paper, Report, ReportLlmCache
 
 logger = logging.getLogger(__name__)
 
 ALLOWED_PERIODS = frozenset({"7d", "1m", "3m", "6m", "1y"})
+
+
+def _report_llm_signature(period: str, start: date, end: date, papers: Sequence[Paper], model: str) -> str:
+    lines = [period, start.isoformat(), end.isoformat(), model]
+    for p in sorted(papers, key=lambda x: x.arxiv_id):
+        lines.append(f"{p.arxiv_id}\t{p.buckets or ''}")
+    raw = "\n".join(lines).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _report_cache_try_load(
+    db: Session, signature: str, bucket_names: Sequence[str]
+) -> tuple[dict[str, str], str] | None:
+    row = db.scalar(select(ReportLlmCache).where(ReportLlmCache.signature == signature))
+    if row is None:
+        return None
+    try:
+        data = json.loads(row.content_json)
+        summaries = data.get("bucket_summaries") or {}
+        executive = (data.get("executive") or "").strip()
+        if not executive or not all(isinstance(summaries.get(b), str) and summaries[b].strip() for b in bucket_names):
+            return None
+        return {b: summaries[b].strip() for b in bucket_names}, executive
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return None
+
+
+def _report_cache_upsert(
+    db: Session,
+    signature: str,
+    period: str,
+    bucket_summaries: dict[str, str],
+    executive: str,
+    paper_count: int,
+) -> None:
+    payload = json.dumps(
+        {"bucket_summaries": bucket_summaries, "executive": executive},
+        ensure_ascii=False,
+    )
+    row = db.scalar(select(ReportLlmCache).where(ReportLlmCache.signature == signature))
+    now = datetime.utcnow()
+    if row:
+        row.content_json = payload
+        row.paper_count = paper_count
+        row.created_at = now
+        row.period = period
+    else:
+        db.add(
+            ReportLlmCache(
+                signature=signature,
+                period=period,
+                content_json=payload,
+                paper_count=paper_count,
+                created_at=now,
+            )
+        )
 
 
 def period_to_date_range(period: str, end: date | None = None) -> tuple[date, date]:
@@ -178,18 +236,36 @@ def generate_report(period: str, db: Session) -> str:
     if not papers:
         raise ValueError("No classified papers in this period; ingest and classify first.")
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
-    groups = _group_by_bucket(papers)
     fixed = list(BUCKET_DESCRIPTIONS.keys())
-    bucket_summaries: dict[str, str] = {}
-    bucket_blocks: list[tuple[str, Sequence[Paper], str]] = []
-    for b in fixed:
-        plist = groups.get(b, [])
-        summary = _summarize_bucket(client, b, plist)
-        bucket_summaries[b] = summary
-        bucket_blocks.append((b, plist, summary))
+    groups = _group_by_bucket(papers)
+    sig = _report_llm_signature(period, start, end, papers, OPENAI_CHAT_MODEL)
 
-    exec_par = _executive_summary(client, period, papers, bucket_summaries)
+    cached = None
+    if REPORT_SUMMARY_CACHE:
+        cached = _report_cache_try_load(db, sig, fixed)
+    if cached:
+        bucket_summaries, exec_par = cached
+        bucket_blocks = [(b, groups.get(b, []), bucket_summaries[b]) for b in fixed]
+        logger.info(
+            "Report LLM cache hit (period=%s papers=%s model=%s)",
+            period,
+            len(papers),
+            OPENAI_CHAT_MODEL,
+        )
+    else:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        bucket_summaries: dict[str, str] = {}
+        bucket_blocks: list[tuple[str, Sequence[Paper], str]] = []
+        for b in fixed:
+            plist = groups.get(b, [])
+            summary = _summarize_bucket(client, b, plist)
+            bucket_summaries[b] = summary
+            bucket_blocks.append((b, plist, summary))
+
+        exec_par = _executive_summary(client, period, papers, bucket_summaries)
+        if REPORT_SUMMARY_CACHE:
+            _report_cache_upsert(db, sig, period, bucket_summaries, exec_par, len(papers))
+
     now = datetime.now(timezone.utc)
     safe_period = re.sub(r"[^a-zA-Z0-9_-]+", "", period)
     filename = f"{safe_period}_{now.strftime('%Y%m%d_%H%M%S')}.html"

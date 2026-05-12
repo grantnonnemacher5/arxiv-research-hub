@@ -35,6 +35,20 @@ export async function getStats() {
   return parseResponse(res);
 }
 
+export async function getPipelineRuns(limit = 30) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const res = await fetch(apiUrl(`/pipeline-runs?${params.toString()}`));
+  return parseResponse(res);
+}
+
+export async function searchCorpus({ q, mode = "hybrid", bucket, limit = 15, rerank = false }) {
+  const params = new URLSearchParams({ q, mode, limit: String(limit) });
+  if (bucket) params.set("bucket", bucket);
+  if (rerank) params.set("rerank", "true");
+  const res = await fetch(apiUrl(`/search?${params.toString()}`));
+  return parseResponse(res);
+}
+
 export async function getPapers({ page = 1, pageSize = 20, bucket, q } = {}) {
   const params = new URLSearchParams({
     page: String(page),

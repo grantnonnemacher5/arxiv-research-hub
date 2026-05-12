@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Generator
 
-from sqlalchemy import Date, DateTime, LargeBinary, String, Text, create_engine
+from sqlalchemy import Date, DateTime, Integer, LargeBinary, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from config import DATABASE_URL
@@ -41,6 +41,36 @@ class Report(Base):
     period: Mapped[str] = mapped_column(String(8), index=True)
     file_path: Mapped[str] = mapped_column(Text)
     generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PipelineRun(Base):
+    """One row per ingest pipeline execution (manual or scheduled)."""
+
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    finished_at: Mapped[datetime] = mapped_column(DateTime)
+    trigger: Mapped[str] = mapped_column(String(16))  # manual | scheduled
+    status: Mapped[str] = mapped_column(String(16), index=True)  # completed | failed
+    saved: Mapped[int] = mapped_column(Integer, default=0)
+    skipped_duplicates: Mapped[int] = mapped_column(Integer, default=0)
+    backfilled: Mapped[int] = mapped_column(Integer, default=0)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ReportLlmCache(Base):
+    """Cached GPT sections for HTML reports (same window + papers + model → skip LLM)."""
+
+    __tablename__ = "report_llm_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    signature: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    period: Mapped[str] = mapped_column(String(8), index=True)
+    content_json: Mapped[str] = mapped_column(Text)
+    paper_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 _is_sqlite = DATABASE_URL.startswith("sqlite")

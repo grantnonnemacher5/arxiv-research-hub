@@ -45,11 +45,34 @@ ARXIV_QUERIES = [
 # arXiv submittedDate range: YYYYMMDDHHMM GMT
 ARXIV_SUBMITTED_FROM = "202001010000"
 
+# Outbound pipeline notifications (optional). If WEBHOOK_URL is empty, no POST is sent.
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip()
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    raw = os.getenv(key)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+# When true (default), reuse stored GPT sections for a report if inputs unchanged (saves tokens).
+REPORT_SUMMARY_CACHE = _env_bool("REPORT_SUMMARY_CACHE", True)
+
+# When true (default), bucket embeddings use abstract only — fewer tokens vs full PDF text.
+CLASSIFY_FROM_ABSTRACT = _env_bool("CLASSIFY_FROM_ABSTRACT", True)
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
 OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o")
 CLASSIFIER_THRESHOLD = float(os.getenv("CLASSIFIER_THRESHOLD", "0.35"))
 SCHEDULE_MINUTE = int(os.getenv("SCHEDULE_MINUTE", "0"))
+
+# Hybrid search: keyword pool size and max papers scanned for dense similarity (in-process, no Pinecone).
+SEARCH_KEYWORD_POOL = int(os.getenv("SEARCH_KEYWORD_POOL", "250"))
+SEARCH_SEMANTIC_MAX_PAPERS = int(os.getenv("SEARCH_SEMANTIC_MAX_PAPERS", "3000"))
+SEARCH_RRF_K = int(os.getenv("SEARCH_RRF_K", "60"))
 
 # Default includes the live Vercel origin. If you set CORS_ORIGINS on Render, it replaces this entire list—
 # include https://arxiv-research-hub.vercel.app there or leave CORS_ORIGINS unset to use these defaults.

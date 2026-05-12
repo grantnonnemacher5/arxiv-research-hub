@@ -16,10 +16,11 @@ from sqlalchemy.orm import Session
 
 from classifier import BUCKET_DESCRIPTIONS
 from config import ARXIV_MAX_RESULTS, CORS_ORIGINS, REPORTS_DIR
-from database import Paper, Report, SessionLocal, get_db, init_db
+from database import Paper, PipelineRun, Report, SessionLocal, get_db, init_db
 from pipeline import run_full_pipeline
 from report_generator import ALLOWED_PERIODS, generate_report
 from scheduler import shutdown_scheduler, start_scheduler
+from search_hybrid import run_search
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -79,6 +80,52 @@ def stats(db: Session = Depends(get_db)):
         "papers_today": int(today_count),
         "buckets": _bucket_counts(db),
     }
+
+
+@app.get("/pipeline-runs")
+def list_pipeline_runs(
+    limit: int = Query(30, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Recent ingest pipeline executions for ops / failure visibility."""
+    rows = list(
+        db.scalars(select(PipelineRun).order_by(PipelineRun.finished_at.desc()).limit(limit)).all()
+    )
+    return [
+        {
+            "id": r.id,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            "trigger": r.trigger,
+            "status": r.status,
+            "saved": r.saved,
+            "skipped_duplicates": r.skipped_duplicates,
+            "backfilled": r.backfilled,
+            "duration_ms": r.duration_ms,
+            "error": r.error,
+        }
+        for r in rows
+    ]
+
+
+@app.get("/search")
+def search_corpus(
+    q: str = Query(..., min_length=1, max_length=500),
+    mode: str = Query("hybrid", description="keyword | semantic | hybrid"),
+    bucket: str | None = Query(None, description="Filter: bucket label substring"),
+    limit: int = Query(15, ge=1, le=50),
+    rerank: bool = Query(False, description="Hybrid only: blend dense + token overlap on top pool"),
+    db: Session = Depends(get_db),
+):
+    """Hybrid search: SQL keyword match + cosine on stored embeddings, fused with RRF."""
+    if mode not in ("keyword", "semantic", "hybrid"):
+        raise HTTPException(400, detail="mode must be keyword, semantic, or hybrid")
+    try:
+        return run_search(db, q, mode, bucket, limit, rerank)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(503, detail=str(e)) from e
 
 
 @app.get("/papers")
@@ -183,7 +230,7 @@ def serve_report(filename: str):
 @app.post("/run-pipeline")
 def run_pipeline_endpoint():
     try:
-        stats = run_full_pipeline(max_results_per_query=ARXIV_MAX_RESULTS)
+        stats = run_full_pipeline(max_results_per_query=ARXIV_MAX_RESULTS, trigger="manual")
     except Exception as e:
         logger.exception("Manual pipeline failed")
         raise HTTPException(500, detail=str(e)) from e
