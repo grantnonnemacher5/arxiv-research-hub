@@ -117,7 +117,7 @@ def search_corpus(
     rerank: bool = Query(False, description="Hybrid only: blend dense + token overlap on top pool"),
     db: Session = Depends(get_db),
 ):
-    """Hybrid search: SQL keyword match + cosine on stored embeddings, fused with RRF."""
+    """Hybrid search: SQL keyword match + dense retrieval (pgvector HNSW on Postgres when populated, else capped in-memory cosine), fused with RRF; optional rerank."""
     if mode not in ("keyword", "semantic", "hybrid"):
         raise HTTPException(400, detail="mode must be keyword, semantic, or hybrid")
     try:

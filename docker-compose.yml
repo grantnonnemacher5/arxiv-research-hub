@@ -5,7 +5,7 @@
 #   cd backend && uvicorn main:app --reload
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: arxiv_mvp_postgres
     environment:
       POSTGRES_USER: arxiv

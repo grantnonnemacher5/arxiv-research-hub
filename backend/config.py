@@ -69,10 +69,15 @@ OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o")
 CLASSIFIER_THRESHOLD = float(os.getenv("CLASSIFIER_THRESHOLD", "0.35"))
 SCHEDULE_MINUTE = int(os.getenv("SCHEDULE_MINUTE", "0"))
 
-# Hybrid search: keyword pool size and max papers scanned for dense similarity (in-process, no Pinecone).
+# Hybrid search: keyword pool size and max papers scanned for dense similarity (SQLite / fallback).
 SEARCH_KEYWORD_POOL = int(os.getenv("SEARCH_KEYWORD_POOL", "250"))
 SEARCH_SEMANTIC_MAX_PAPERS = int(os.getenv("SEARCH_SEMANTIC_MAX_PAPERS", "3000"))
 SEARCH_RRF_K = int(os.getenv("SEARCH_RRF_K", "60"))
+# PostgreSQL + pgvector: ANN candidate pool for semantic / hybrid dense leg (HNSW index on `embedding_vec`).
+SEARCH_USE_PGVECTOR = _env_bool("SEARCH_USE_PGVECTOR", True)
+SEARCH_PGVECTOR_CANDIDATES = int(os.getenv("SEARCH_PGVECTOR_CANDIDATES", "400"))
+# Must match the embedding model output size (text-embedding-3-small default = 1536).
+OPENAI_EMBED_DIMENSION = int(os.getenv("OPENAI_EMBED_DIMENSION", "1536"))
 
 # Default includes the live Vercel origin. If you set CORS_ORIGINS on Render, it replaces this entire list—
 # include https://arxiv-research-hub.vercel.app there or leave CORS_ORIGINS unset to use these defaults.

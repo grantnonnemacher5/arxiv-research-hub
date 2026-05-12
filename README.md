@@ -24,6 +24,14 @@ Create a `.env` file at the repo root for secrets—never commit it. Variable na
 
 On first startup with a new empty database, `init_db()` runs **`create_all`** so tables (`papers`, `reports`, `pipeline_runs`, `report_llm_cache`, …) appear automatically—no manual SQL migration for the MVP.
 
+**Semantic search at scale (PostgreSQL only):** when `DATABASE_URL` is Postgres (e.g. Neon), the API enables the **`vector`** extension, adds `papers.embedding_vec`, and builds an **HNSW** index. New ingests sync vectors automatically. **Existing** rows that only have blob embeddings need a one-time backfill:
+
+```bash
+cd backend && python3 backfill_pgvector.py
+```
+
+Tune with `SEARCH_PGVECTOR_CANDIDATES`, `OPENAI_EMBED_DIMENSION` (must match `OPENAI_EMBED_MODEL`), and `SEARCH_USE_PGVECTOR` — see `backend/config.py`. SQLite stays on in-memory dense scan.
+
 For Postgres **locally** only, you can use Compose and match `docker-compose.yml`:
 
 ```bash

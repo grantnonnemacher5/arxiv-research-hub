@@ -1,10 +1,13 @@
 from datetime import date, datetime
+import logging
 from typing import Generator
 
 from sqlalchemy import Date, DateTime, Integer, LargeBinary, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from config import DATABASE_URL
+
+logger = logging.getLogger(__name__)
 
 
 def strip_nul_bytes(text: str | None) -> str | None:
@@ -86,6 +89,12 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    try:
+        from pgvector_support import ensure_pgvector_schema
+
+        ensure_pgvector_schema(engine)
+    except Exception:
+        logger.exception("Optional pgvector schema step failed (OK on SQLite)")
 
 
 def get_db() -> Generator:

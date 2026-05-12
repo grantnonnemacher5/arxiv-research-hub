@@ -126,7 +126,17 @@ export default function PaperSearch() {
             {payload.items?.length ?? 0} result{(payload.items?.length || 0) !== 1 ? 's' : ''} ·{' '}
             {payload.mode}
             {payload.rerank ? ' · reranked' : ''}
+            {payload.dense_ranking && payload.vector_index && payload.vector_index !== 'none'
+              ? ` · ${payload.vector_index === 'pgvector_hnsw' ? 'pgvector HNSW' : 'memory scan'}`
+              : ''}
           </p>
+          {payload.dense_ranking === false &&
+          (payload.mode === 'hybrid' || payload.mode === 'semantic') ? (
+            <p className="mt-2 rounded border border-amber-100 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+              Embedding-based ranking is not enabled on this deployment. Showing keyword matches over title and
+              abstract only (no OpenAI call).
+            </p>
+          ) : null}
           {payload.items?.length === 0 ? (
             <p className="mt-3 text-sm text-slate-500">No matches. Try another query or mode.</p>
           ) : (

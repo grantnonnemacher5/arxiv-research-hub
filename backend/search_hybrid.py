@@ -1,6 +1,8 @@
 """Keyword + dense (embedding) search with RRF fusion; optional token-overlap rerank.
 
-Uses embeddings already stored on `Paper` rows (no external vector DB for MVP).
+Semantic / hybrid dense leg:
+- **PostgreSQL + pgvector**: HNSW ANN on `papers.embedding_vec` (populated from `embedding` blobs on ingest).
+- **SQLite / fallback**: in-process cosine scan on `Paper.embedding` blobs (capped by SEARCH_SEMANTIC_MAX_PAPERS).
 """
 
 from __future__ import annotations
@@ -23,8 +25,10 @@ from classifier import (
 from config import (
     OPENAI_API_KEY,
     SEARCH_KEYWORD_POOL,
+    SEARCH_PGVECTOR_CANDIDATES,
     SEARCH_RRF_K,
     SEARCH_SEMANTIC_MAX_PAPERS,
+    SEARCH_USE_PGVECTOR,
 )
 from database import Paper
 
@@ -51,7 +55,7 @@ def _keyword_candidates(db: Session, needle: str, bucket: str | None) -> list[Pa
     return list(db.scalars(stmt.limit(SEARCH_KEYWORD_POOL)).all())
 
 
-def _semantic_ranked(
+def _semantic_ranked_memory(
     db: Session, query_vec: np.ndarray, bucket: str | None
 ) -> list[tuple[Paper, float]]:
     stmt = select(Paper).where(Paper.embedding.isnot(None))
@@ -71,6 +75,38 @@ def _semantic_ranked(
         scored.append((p, sim))
     scored.sort(key=lambda x: -x[1])
     return scored
+
+
+def _semantic_ranked(
+    db: Session, query_vec: np.ndarray, bucket: str | None
+) -> tuple[list[tuple[Paper, float]], str]:
+    """
+    Returns (ranked papers with cosine similarity, vector_index backend id).
+    """
+    from pgvector_support import count_pgvector_indexed, semantic_ann_candidates
+
+    if SEARCH_USE_PGVECTOR and count_pgvector_indexed(db) > 0:
+        ann = semantic_ann_candidates(db, query_vec, bucket, SEARCH_PGVECTOR_CANDIDATES)
+        if ann:
+            ids_order = [pid for pid, _ in ann]
+            papers_by_id = {
+                p.id: p for p in db.scalars(select(Paper).where(Paper.id.in_(ids_order))).all()
+            }
+            rescored: list[tuple[Paper, float]] = []
+            for pid, _ in ann:
+                p = papers_by_id.get(pid)
+                if p is None:
+                    continue
+                vec = embedding_from_blob(p.embedding)
+                if vec is None:
+                    continue
+                sim = cosine_similarity(query_vec, vec.astype(np.float64))
+                rescored.append((p, sim))
+            rescored.sort(key=lambda x: -x[1])
+            if rescored:
+                return rescored, "pgvector_hnsw"
+
+    return _semantic_ranked_memory(db, query_vec, bucket), "memory_scan"
 
 
 def _rrf_merge(
@@ -130,6 +166,17 @@ def _rerank_fusion(
     return rescored[:out_limit]
 
 
+def _keyword_only_items(db: Session, needle: str, bucket: str | None, limit: int) -> list[dict[str, Any]]:
+    kws = _keyword_candidates(db, needle, bucket)
+    return [
+        {
+            "paper": _paper_dict(p),
+            "scores": {"keyword": round(_keyword_overlap_score(needle, p), 4)},
+        }
+        for p in kws[:limit]
+    ]
+
+
 def run_search(
     db: Session,
     q: str,
@@ -143,24 +190,34 @@ def run_search(
         raise ValueError("q must not be empty")
 
     if mode == "keyword":
-        kws = _keyword_candidates(db, needle, bucket)
-        items = []
-        for p in kws[:limit]:
-            items.append(
-                {
-                    "paper": _paper_dict(p),
-                    "scores": {"keyword": round(_keyword_overlap_score(needle, p), 4)},
-                }
-            )
-        return {"mode": mode, "q": needle, "bucket": bucket, "rerank": False, "items": items}
+        items = _keyword_only_items(db, needle, bucket, limit)
+        return {
+            "mode": mode,
+            "q": needle,
+            "bucket": bucket,
+            "rerank": False,
+            "items": items,
+            "dense_ranking": False,
+            "vector_index": "none",
+        }
 
+    # Semantic / hybrid without OpenAI: keyword-only (no API cost; aligns with key-free deploys).
     if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is required for semantic and hybrid search")
+        items = _keyword_only_items(db, needle, bucket, limit)
+        return {
+            "mode": mode,
+            "q": needle,
+            "bucket": bucket,
+            "rerank": False,
+            "items": items,
+            "dense_ranking": False,
+            "vector_index": "none",
+        }
 
     query_vec = embed_query_text(needle)
 
     if mode == "semantic":
-        ranked = _semantic_ranked(db, query_vec, bucket)
+        ranked, vector_index = _semantic_ranked(db, query_vec, bucket)
         items = []
         for p, sim in ranked[:limit]:
             sem_n = (sim + 1.0) / 2.0
@@ -170,11 +227,19 @@ def run_search(
                     "scores": {"semantic": round(sem_n, 4), "cosine": round(sim, 4)},
                 }
             )
-        return {"mode": mode, "q": needle, "bucket": bucket, "rerank": False, "items": items}
+        return {
+            "mode": mode,
+            "q": needle,
+            "bucket": bucket,
+            "rerank": False,
+            "items": items,
+            "dense_ranking": True,
+            "vector_index": vector_index,
+        }
 
     # hybrid
     kws = _keyword_candidates(db, needle, bucket)
-    sem_ranked = _semantic_ranked(db, query_vec, bucket)
+    sem_ranked, vector_index = _semantic_ranked(db, query_vec, bucket)
     sem_order = [p for p, _ in sem_ranked]
     fused = _rrf_merge(kws, sem_order, SEARCH_RRF_K)
 
@@ -202,7 +267,15 @@ def run_search(
                 }
             )
 
-    return {"mode": mode, "q": needle, "bucket": bucket, "rerank": bool(rerank), "items": items}
+    return {
+        "mode": mode,
+        "q": needle,
+        "bucket": bucket,
+        "rerank": bool(rerank),
+        "items": items,
+        "dense_ranking": True,
+        "vector_index": vector_index,
+    }
 
 
 def _paper_dict(p: Paper) -> dict[str, Any]:

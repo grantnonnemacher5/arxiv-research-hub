@@ -20,6 +20,7 @@ from config import OPENAI_API_KEY
 from database import Paper, PipelineRun, SessionLocal, init_db, strip_nul_bytes
 from deduplicator import is_duplicate
 from pdf_extractor import extract_text_from_pdf
+from pgvector_support import sync_paper_embedding_vec
 from webhook_notify import send_pipeline_webhook
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,9 @@ def backfill_classifications(db: Session) -> int:
         buckets, emb = classify_paper_text(text)
         row.buckets = strip_nul_bytes(buckets_to_csv(buckets)) or ""
         row.embedding = emb if emb else None
+        db.flush()
+        if emb:
+            sync_paper_embedding_vec(db, row.id, emb)
         updated += 1
     if updated:
         db.commit()
@@ -131,6 +135,9 @@ def run_full_pipeline(
                 embedding=emb,
             )
             db.add(row)
+            db.flush()
+            if emb:
+                sync_paper_embedding_vec(db, row.id, emb)
             db.commit()
             saved += 1
             logger.info("Ingested %s — %s", p["arxiv_id"], (p.get("title") or "")[:80])
