@@ -110,10 +110,6 @@ export default function Dashboard() {
           <ReportViewer refreshKey={refreshKey} onToast={setToast} />
         </div>
       </div>
-
-      <p className="mt-12 text-center text-xs text-slate-400">
-        Runs on your machine · no cloud required for ingest
-      </p>
     </div>
   )
 }
