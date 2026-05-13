@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from arxiv_ingestion import fetch_all_bucket_queries
 from config import (
     ARXIV_SYNC_MAX_OFFSET_BLOCKS,
+    ARXIV_SYNC_MAX_SAVES_PER_RUN,
     ARXIV_SYNC_STOP_ALL_DUP_STREAK,
     BACKFILL_CLASSIFICATION_BATCH_SIZE,
     INGEST_FETCH_PDF,
@@ -250,6 +251,7 @@ def _run_full_pipeline_impl(
 
     try:
         all_dup_streak = 0
+        save_cap_reached = False
         for start_block in range(ARXIV_SYNC_MAX_OFFSET_BLOCKS):
             if start_block > 0:
                 time.sleep(3.1)
@@ -310,6 +312,18 @@ def _run_full_pipeline_impl(
                 block_new += 1
                 bump_progress_checkpoint()
                 logger.info("Ingested %s — %s", p["arxiv_id"], (p.get("title") or "")[:80])
+                if saved >= ARXIV_SYNC_MAX_SAVES_PER_RUN:
+                    save_cap_reached = True
+                    logger.info(
+                        "Pipeline: reached ARXIV_SYNC_MAX_SAVES_PER_RUN=%s — stopping ingest "
+                        "(saved=%s, skipped=%s).",
+                        ARXIV_SYNC_MAX_SAVES_PER_RUN,
+                        saved,
+                        skipped,
+                    )
+                    break
+            if save_cap_reached:
+                break
             if block_new > 0:
                 all_dup_streak = 0
             else:

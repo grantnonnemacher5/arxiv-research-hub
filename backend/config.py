@@ -32,6 +32,9 @@ ARXIV_PAGE_COUNT = max(1, int(os.getenv("ARXIV_PAGE_COUNT", "2")))
 ARXIV_SYNC_MAX_OFFSET_BLOCKS = max(1, int(os.getenv("ARXIV_SYNC_MAX_OFFSET_BLOCKS", "6")))
 # Stop after this many consecutive blocks that had candidates but 0 new saves (avoids endless API calls).
 ARXIV_SYNC_STOP_ALL_DUP_STREAK = max(1, int(os.getenv("ARXIV_SYNC_STOP_ALL_DUP_STREAK", "3")))
+# Hard cap on NEW papers saved per single pipeline run. Once reached, ingest exits cleanly
+# (run still marked completed). Protects DB size + OpenAI cost on small / free tiers.
+ARXIV_SYNC_MAX_SAVES_PER_RUN = max(1, int(os.getenv("ARXIV_SYNC_MAX_SAVES_PER_RUN", "300")))
 SCHEDULE_HOUR = int(os.getenv("SCHEDULE_HOUR", "8"))
 REPORTS_DIR = Path(os.getenv("REPORTS_DIR", str(_PROJECT_ROOT / "reports")))
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
