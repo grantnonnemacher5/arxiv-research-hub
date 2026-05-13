@@ -1,3 +1,13 @@
+---
+title: arXiv Research Hub
+emoji: "\U0001F4DA"
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # arxiv-research-hub
 
 Source: [github.com/Yonas1219/arxiv-research-hub](https://github.com/Yonas1219/arxiv-research-hub)
