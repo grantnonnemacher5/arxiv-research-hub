@@ -16,6 +16,11 @@ const BUCKETS = [
   { value: 'AI x Finance', label: 'Finance' },
 ]
 
+function arxivAbsUrl(arxivId) {
+  if (!arxivId) return null
+  return `https://arxiv.org/abs/${encodeURIComponent(String(arxivId).trim())}`
+}
+
 export default function PaperSearch() {
   const [q, setQ] = useState('')
   const [mode, setMode] = useState('hybrid')
@@ -141,15 +146,60 @@ export default function PaperSearch() {
             <p className="mt-3 text-sm text-slate-500">No matches. Try another query or mode.</p>
           ) : (
             <ul className="mt-3 space-y-3">
-              {payload.items.map((row) => (
+              {payload.items.map((row) => {
+                const abs = arxivAbsUrl(row.paper.arxiv_id)
+                const pdf = row.paper.pdf_url?.trim() || null
+                return (
                 <li
                   key={row.paper.id}
                   className="rounded-lg border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <p className="font-medium text-slate-900">{row.paper.title}</p>
-                    <span className="font-mono text-xs text-slate-500">{row.paper.arxiv_id}</span>
+                    {abs ? (
+                      <a
+                        href={abs}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium text-slate-900 underline decoration-slate-300 decoration-1 underline-offset-2 hover:text-sky-800 hover:decoration-sky-600"
+                      >
+                        {row.paper.title}
+                      </a>
+                    ) : (
+                      <p className="font-medium text-slate-900">{row.paper.title}</p>
+                    )}
+                    {abs ? (
+                      <a
+                        href={abs}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 font-mono text-xs text-sky-700 hover:underline"
+                        title="Open on arXiv"
+                      >
+                        {row.paper.arxiv_id}
+                      </a>
+                    ) : (
+                      <span className="font-mono text-xs text-slate-500">{row.paper.arxiv_id}</span>
+                    )}
                   </div>
+                  {(pdf || abs) && (
+                    <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs font-medium">
+                      {pdf ? (
+                        <a
+                          href={pdf}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sky-700 hover:underline"
+                        >
+                          PDF
+                        </a>
+                      ) : null}
+                      {abs ? (
+                        <a href={abs} target="_blank" rel="noreferrer" className="text-sky-700 hover:underline">
+                          arXiv abstract
+                        </a>
+                      ) : null}
+                    </p>
+                  )}
                   <p className="mt-1 text-xs text-slate-600">{row.paper.authors}</p>
                   {row.paper.abstract ? (
                     <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-600">{row.paper.abstract}</p>
@@ -169,7 +219,8 @@ export default function PaperSearch() {
                       .join(' · ')}
                   </p>
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
         </div>
