@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 
-from config import ARXIV_MAX_RESULTS, ARXIV_QUERIES, ARXIV_SUBMITTED_FROM
+from config import ARXIV_MAX_RESULTS, ARXIV_PAGE_COUNT, ARXIV_QUERIES, ARXIV_SUBMITTED_FROM
 
 logger = logging.getLogger(__name__)
 
@@ -109,25 +109,35 @@ def fetch_arxiv_papers(
 def fetch_all_bucket_queries(
     max_results_per_query: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch from each configured category; de-dupe by arxiv_id within this run."""
+    """Fetch from each configured category; de-dupe by arxiv_id within this run.
+
+    Uses ARXIV_PAGE_COUNT offset pages per category so sync can still find new papers after the
+    newest N per category are already in the database.
+    """
     max_results_per_query = (
         max_results_per_query if max_results_per_query is not None else ARXIV_MAX_RESULTS
     )
     seen: set[str] = set()
     merged: list[dict[str, Any]] = []
-    for i, q in enumerate(ARXIV_QUERIES):
-        if i:
-            time.sleep(3.1)  # arXiv asks for ~3s between requests
+    first_request = True
+    for q in ARXIV_QUERIES:
         full_q = _build_search_query(q)
-        try:
-            batch = fetch_arxiv_papers(full_q, max_results=max_results_per_query)
-        except Exception as exc:
-            logger.error("arXiv fetch failed for %s: %s", full_q, exc)
-            continue
-        for paper in batch:
-            aid = paper["arxiv_id"]
-            if aid in seen:
-                continue
-            seen.add(aid)
-            merged.append(paper)
+        for page in range(ARXIV_PAGE_COUNT):
+            if not first_request:
+                time.sleep(3.1)  # arXiv asks for ~3s between requests
+            first_request = False
+            start = page * max_results_per_query
+            try:
+                batch = fetch_arxiv_papers(full_q, max_results=max_results_per_query, start=start)
+            except Exception as exc:
+                logger.error("arXiv fetch failed for %s start=%s: %s", full_q, start, exc)
+                break
+            if not batch:
+                break
+            for paper in batch:
+                aid = paper["arxiv_id"]
+                if aid in seen:
+                    continue
+                seen.add(aid)
+                merged.append(paper)
     return merged

@@ -25,6 +25,9 @@ else:
     DATABASE_URL = _raw_url
 
 ARXIV_MAX_RESULTS = int(os.getenv("ARXIV_MAX_RESULTS", "50"))
+# Per category: pages at max_results each (start=0, then start=max_results, …). >1 reaches older
+# submissions when the first page is already fully ingested (common after initial backfill).
+ARXIV_PAGE_COUNT = max(1, int(os.getenv("ARXIV_PAGE_COUNT", "2")))
 SCHEDULE_HOUR = int(os.getenv("SCHEDULE_HOUR", "8"))
 REPORTS_DIR = Path(os.getenv("REPORTS_DIR", str(_PROJECT_ROOT / "reports")))
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)

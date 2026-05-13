@@ -26,7 +26,10 @@ export default function PipelineRuns({ refreshKey }) {
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <h2 className="font-serif text-lg font-semibold text-slate-900">Pipeline runs</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Recent sync jobs — duration, saved vs skipped duplicates, and failures (manual + scheduled).
+        Recent sync jobs — <strong className="font-medium text-slate-600">Saved</strong> is new papers;
+        <strong className="font-medium text-slate-600"> skipped</strong> means that arXiv id was already
+        in your library. Completed + 0 saved usually means the fetched batch was all duplicates, not a
+        failed sync.
       </p>
       {err && (
         <p className="mt-3 text-sm text-red-700" role="alert">

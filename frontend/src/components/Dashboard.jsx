@@ -34,10 +34,14 @@ export default function Dashboard() {
     setToast(null)
     try {
       const res = await runPipeline()
-      setToast({
-        type: 'ok',
-        text: `Done — saved ${res.stats?.saved ?? 0}, skipped ${res.stats?.skipped_duplicates ?? 0}, backfilled ${res.stats?.backfilled ?? 0}`,
-      })
+      const saved = res.stats?.saved ?? 0
+      const skipped = res.stats?.skipped_duplicates ?? 0
+      const backfilled = res.stats?.backfilled ?? 0
+      let text = `Done — saved ${saved}, skipped ${skipped} (already in library), backfilled ${backfilled}.`
+      if (saved === 0 && skipped > 0) {
+        text += ' Totals unchanged: every id in this fetch was already ingested.'
+      }
+      setToast({ type: 'ok', text })
       setRefreshKey((k) => k + 1)
     } catch (e) {
       setToast({ type: 'err', text: friendlyErrorMessage(e?.message || e) })
