@@ -44,7 +44,12 @@ export default function PipelineRuns({ refreshKey }) {
           <table className="w-full min-w-[720px] border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                <th className="border-r border-slate-200 px-3 py-2.5">Finished (CST)</th>
+                <th
+                  className="border-r border-slate-200 px-3 py-2.5"
+                  title="US Central (Chicago). Daylight saving: CDT. Standard time: CST."
+                >
+                  Finished (CT)
+                </th>
                 <th className="border-r border-slate-200 px-3 py-2.5">Trigger</th>
                 <th className="border-r border-slate-200 px-3 py-2.5">Status</th>
                 <th className="border-r border-slate-200 px-3 py-2.5 text-right">Saved</th>
@@ -64,11 +69,11 @@ export default function PipelineRuns({ refreshKey }) {
                     className="border-r border-slate-200 px-3 py-2.5 font-mono text-xs text-slate-700"
                     title={
                       r.finished_at
-                        ? `${r.finished_at} (UTC) · shown as CST (fixed UTC-6, no daylight saving)`
+                        ? `${r.finished_at} (UTC) · US Central, America/Chicago (CST or CDT by date)`
                         : ''
                     }
                   >
-                    {r.finished_at ? formatFinishedCST(r.finished_at) : '—'}
+                    {r.finished_at ? formatFinishedChicago(r.finished_at) : '—'}
                   </td>
                   <td className="border-r border-slate-200 px-3 py-2.5 text-slate-700">{r.trigger}</td>
                   <td className="border-r border-slate-200 px-3 py-2.5">
@@ -110,20 +115,20 @@ export default function PipelineRuns({ refreshKey }) {
   )
 }
 
-/** Fixed US Central Standard Time: UTC-6 year-round, always labeled CST (not CDT). */
-function formatFinishedCST(iso) {
+/** US Central wall clock: America/Chicago (CST in winter, CDT in summer). */
+function formatFinishedChicago(iso) {
   try {
     const d = new Date(iso)
-    const ft = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Etc/GMT+6',
+    return d.toLocaleString('en-US', {
+      timeZone: 'America/Chicago',
       month: 'short',
       day: 'numeric',
       year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
+      timeZoneName: 'short',
     })
-    return `${ft.format(d)} CST`
   } catch {
     return iso
   }
