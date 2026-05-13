@@ -56,6 +56,14 @@ export default function PaperSearch() {
     }
   }
 
+  function handleClear() {
+    setPayload(null)
+    setErr(null)
+    setQ('')
+  }
+
+  const canClear = Boolean(payload || err || q.trim())
+
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <h2 className="font-serif text-lg font-semibold text-slate-900">Search corpus</h2>
@@ -110,13 +118,24 @@ export default function PaperSearch() {
             Rerank top results
           </label>
         )}
-        <button
-          type="submit"
-          disabled={loading}
-          className="inline-flex h-10 items-center justify-center rounded-lg bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50 sm:mb-0.5"
-        >
-          {loading ? 'Searching…' : 'Search'}
-        </button>
+        <div className="flex flex-wrap gap-2 sm:mb-0.5">
+          <button
+            type="submit"
+            disabled={loading}
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50"
+          >
+            {loading ? 'Searching…' : 'Search'}
+          </button>
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={!canClear}
+            className="inline-flex h-10 items-center justify-center rounded-lg border-2 border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Clear query and search results"
+          >
+            Clear
+          </button>
+        </div>
       </form>
 
       {err && (
@@ -127,14 +146,24 @@ export default function PaperSearch() {
 
       {payload && (
         <div className="mt-6 border-t border-slate-100 pt-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            {payload.items?.length ?? 0} result{(payload.items?.length || 0) !== 1 ? 's' : ''} ·{' '}
-            {payload.mode}
-            {payload.rerank ? ' · reranked' : ''}
-            {payload.dense_ranking && payload.vector_index && payload.vector_index !== 'none'
-              ? ` · ${payload.vector_index === 'pgvector_hnsw' ? 'pgvector HNSW' : 'memory scan'}`
-              : ''}
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              {payload.items?.length ?? 0} result{(payload.items?.length || 0) !== 1 ? 's' : ''} ·{' '}
+              {payload.mode}
+              {payload.rerank ? ' · reranked' : ''}
+              {payload.dense_ranking && payload.vector_index && payload.vector_index !== 'none'
+                ? ` · ${payload.vector_index === 'pgvector_hnsw' ? 'pgvector HNSW' : 'memory scan'}`
+                : ''}
+            </p>
+            <button
+              type="button"
+              onClick={handleClear}
+              className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+              aria-label="Close search results"
+            >
+              Close results
+            </button>
+          </div>
           {payload.dense_ranking === false &&
           (payload.mode === 'hybrid' || payload.mode === 'semantic') ? (
             <p className="mt-2 rounded border border-amber-100 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
