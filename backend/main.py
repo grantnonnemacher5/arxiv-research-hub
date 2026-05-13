@@ -95,28 +95,41 @@ def _utc_iso(dt: datetime | None) -> str | None:
 
 @app.get("/pipeline-runs")
 def list_pipeline_runs(
-    limit: int = Query(30, ge=1, le=100),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
-    """Recent ingest pipeline executions for ops / failure visibility."""
+    """Recent ingest pipeline executions for ops / failure visibility (paginated, newest first)."""
+    total = db.scalar(select(func.count()).select_from(PipelineRun)) or 0
+    offset = (page - 1) * page_size
     rows = list(
-        db.scalars(select(PipelineRun).order_by(PipelineRun.finished_at.desc()).limit(limit)).all()
+        db.scalars(
+            select(PipelineRun)
+            .order_by(PipelineRun.finished_at.desc())
+            .offset(offset)
+            .limit(page_size)
+        ).all()
     )
-    return [
-        {
-            "id": r.id,
-            "started_at": _utc_iso(r.started_at),
-            "finished_at": _utc_iso(r.finished_at),
-            "trigger": r.trigger,
-            "status": r.status,
-            "saved": r.saved,
-            "skipped_duplicates": r.skipped_duplicates,
-            "backfilled": r.backfilled,
-            "duration_ms": r.duration_ms,
-            "error": r.error,
-        }
-        for r in rows
-    ]
+    return {
+        "page": page,
+        "page_size": page_size,
+        "total": int(total),
+        "items": [
+            {
+                "id": r.id,
+                "started_at": _utc_iso(r.started_at),
+                "finished_at": _utc_iso(r.finished_at),
+                "trigger": r.trigger,
+                "status": r.status,
+                "saved": r.saved,
+                "skipped_duplicates": r.skipped_duplicates,
+                "backfilled": r.backfilled,
+                "duration_ms": r.duration_ms,
+                "error": r.error,
+            }
+            for r in rows
+        ],
+    }
 
 
 @app.get("/search")

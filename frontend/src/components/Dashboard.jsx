@@ -103,7 +103,7 @@ export default function Dashboard() {
       </div>
 
       <div className="mb-10">
-        <PipelineRuns refreshKey={refreshKey} />
+        <PipelineRuns key={refreshKey} />
       </div>
 
       <section className="mb-10 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">

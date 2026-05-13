@@ -35,8 +35,11 @@ export async function getStats() {
   return parseResponse(res);
 }
 
-export async function getPipelineRuns(limit = 30) {
-  const params = new URLSearchParams({ limit: String(limit) });
+export async function getPipelineRuns({ page = 1, pageSize = 10 } = {}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
   const res = await fetch(apiUrl(`/pipeline-runs?${params.toString()}`));
   return parseResponse(res);
 }

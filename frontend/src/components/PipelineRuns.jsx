@@ -2,25 +2,39 @@ import { useEffect, useState } from 'react'
 import { getPipelineRuns } from '../api'
 import { friendlyErrorMessage } from '../lib/apiErrors.js'
 
-export default function PipelineRuns({ refreshKey }) {
-  const [runs, setRuns] = useState(null)
+const PAGE_SIZE = 10
+
+export default function PipelineRuns() {
+  const [page, setPage] = useState(1)
+  const [payload, setPayload] = useState(null)
   const [err, setErr] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       setErr(null)
+      setLoading(true)
       try {
-        const data = await getPipelineRuns(30)
-        if (!cancelled) setRuns(data)
+        const data = await getPipelineRuns({ page, pageSize: PAGE_SIZE })
+        if (!cancelled) setPayload(data)
       } catch (e) {
-        if (!cancelled) setErr(friendlyErrorMessage(e?.message || e))
+        if (!cancelled) {
+          setErr(friendlyErrorMessage(e?.message || e))
+          setPayload(null)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [refreshKey])
+  }, [page])
+
+  const total = payload?.total ?? 0
+  const items = payload?.items ?? []
+  const totalPages = !payload?.page_size ? 1 : Math.max(1, Math.ceil(total / payload.page_size))
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -36,10 +50,21 @@ export default function PipelineRuns({ refreshKey }) {
           {err}
         </p>
       )}
-      {!err && runs && runs.length === 0 && (
+      {loading && !err && (
+        <p className="mt-4 flex items-center gap-2 text-sm text-slate-500">
+          <span
+            className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-sky-500"
+            aria-hidden
+          />
+          Loading runs…
+        </p>
+      )}
+
+      {!loading && !err && total === 0 && (
         <p className="mt-4 text-sm text-slate-500">No runs recorded yet. Run &quot;Sync arXiv&quot; once.</p>
       )}
-      {!err && runs && runs.length > 0 && (
+
+      {!loading && !err && items.length > 0 && (
         <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
           <table className="w-full min-w-[720px] border-collapse text-left text-sm">
             <thead>
@@ -60,7 +85,7 @@ export default function PipelineRuns({ refreshKey }) {
               </tr>
             </thead>
             <tbody>
-              {runs.map((r) => (
+              {items.map((r) => (
                 <tr
                   key={r.id}
                   className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60 last:border-b-0"
@@ -109,6 +134,34 @@ export default function PipelineRuns({ refreshKey }) {
               ))}
             </tbody>
           </table>
+          {totalPages > 1 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/50 px-3 py-2.5 text-xs text-slate-600">
+              <p className="tabular-nums">
+                Page <span className="font-semibold text-slate-800">{page}</span> of{' '}
+                <span className="font-semibold text-slate-800">{totalPages}</span>
+                <span className="mx-2 text-slate-300">·</span>
+                {total} run{total !== 1 ? 's' : ''} total
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </section>
