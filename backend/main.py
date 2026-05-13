@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -82,6 +82,17 @@ def stats(db: Session = Depends(get_db)):
     }
 
 
+def _utc_iso(dt: datetime | None) -> str | None:
+    """Serialize DB datetimes as UTC ISO with Z so browsers parse them correctly."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat().replace("+00:00", "Z")
+
+
 @app.get("/pipeline-runs")
 def list_pipeline_runs(
     limit: int = Query(30, ge=1, le=100),
@@ -94,8 +105,8 @@ def list_pipeline_runs(
     return [
         {
             "id": r.id,
-            "started_at": r.started_at.isoformat() if r.started_at else None,
-            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            "started_at": _utc_iso(r.started_at),
+            "finished_at": _utc_iso(r.finished_at),
             "trigger": r.trigger,
             "status": r.status,
             "saved": r.saved,

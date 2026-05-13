@@ -29,7 +29,7 @@ export default function PipelineRuns({ refreshKey }) {
         Recent sync jobs — <strong className="font-medium text-slate-600">Saved</strong> is new papers;
         <strong className="font-medium text-slate-600"> skipped</strong> means that arXiv id was already
         in your library. Completed + 0 saved usually means the fetched batch was all duplicates, not a
-        failed sync.
+        failed sync. <span className="text-slate-400">Finished times: US Central (Chicago).</span>
       </p>
       {err && (
         <p className="mt-3 text-sm text-red-700" role="alert">
@@ -44,7 +44,7 @@ export default function PipelineRuns({ refreshKey }) {
           <table className="w-full min-w-[720px] border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                <th className="border-r border-slate-200 px-3 py-2.5">Finished</th>
+                <th className="border-r border-slate-200 px-3 py-2.5">Finished (CT)</th>
                 <th className="border-r border-slate-200 px-3 py-2.5">Trigger</th>
                 <th className="border-r border-slate-200 px-3 py-2.5">Status</th>
                 <th className="border-r border-slate-200 px-3 py-2.5 text-right">Saved</th>
@@ -60,8 +60,11 @@ export default function PipelineRuns({ refreshKey }) {
                   key={r.id}
                   className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60 last:border-b-0"
                 >
-                  <td className="border-r border-slate-200 px-3 py-2.5 font-mono text-xs text-slate-700">
-                    {r.finished_at ? formatLocal(r.finished_at) : '—'}
+                  <td
+                    className="border-r border-slate-200 px-3 py-2.5 font-mono text-xs text-slate-700"
+                    title={r.finished_at ? `${r.finished_at} (API UTC)` : ''}
+                  >
+                    {r.finished_at ? formatFinishedCentralTime(r.finished_at) : '—'}
                   </td>
                   <td className="border-r border-slate-200 px-3 py-2.5 text-slate-700">{r.trigger}</td>
                   <td className="border-r border-slate-200 px-3 py-2.5">
@@ -103,14 +106,18 @@ export default function PipelineRuns({ refreshKey }) {
   )
 }
 
-function formatLocal(iso) {
+/** US Central Time (America/Chicago — CST in winter, CDT in summer). */
+function formatFinishedCentralTime(iso) {
   try {
     const d = new Date(iso)
-    return d.toLocaleString(undefined, {
+    return d.toLocaleString('en-US', {
+      timeZone: 'America/Chicago',
       month: 'short',
       day: 'numeric',
-      hour: '2-digit',
+      year: 'numeric',
+      hour: 'numeric',
       minute: '2-digit',
+      timeZoneName: 'short',
     })
   } catch {
     return iso
