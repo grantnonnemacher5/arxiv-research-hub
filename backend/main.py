@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import Date, cast, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -220,7 +220,14 @@ def _safe_report_path(filename: str) -> Path | None:
 
 
 @app.get("/reports/{filename}")
-def serve_report(filename: str):
+def serve_report(filename: str, db: Session = Depends(get_db)):
+    if not filename or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(404, detail="Report not found")
+    if not re.match(r"^[a-zA-Z0-9_.-]+\.html$", filename):
+        raise HTTPException(404, detail="Report not found")
+    row = db.scalar(select(Report).where(Report.file_path == filename))
+    if row and (html := (row.html_content or "").strip()):
+        return Response(content=html, media_type="text/html; charset=utf-8")
     path = _safe_report_path(filename)
     if path is None:
         raise HTTPException(404, detail="Report not found")

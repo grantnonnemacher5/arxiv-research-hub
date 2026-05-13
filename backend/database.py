@@ -2,7 +2,7 @@ from datetime import date, datetime
 import logging
 from typing import Generator
 
-from sqlalchemy import Date, DateTime, Integer, LargeBinary, String, Text, create_engine
+from sqlalchemy import Date, DateTime, Integer, LargeBinary, String, Text, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from config import DATABASE_URL
@@ -44,6 +44,8 @@ class Report(Base):
     period: Mapped[str] = mapped_column(String(8), index=True)
     file_path: Mapped[str] = mapped_column(Text)
     generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Full HTML persisted for hosts with ephemeral disk (e.g. Render); serve via GET /reports/{filename}
+    html_content: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class PipelineRun(Base):
@@ -87,8 +89,24 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
+def ensure_reports_html_column() -> None:
+    """Add reports.html_content on existing DBs (create_all does not alter tables)."""
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("reports"):
+            return
+        if any(c["name"] == "html_content" for c in insp.get_columns("reports")):
+            return
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE reports ADD COLUMN html_content TEXT"))
+        logger.info("Added reports.html_content for persisted HTML exports")
+    except Exception:
+        logger.exception("Could not add reports.html_content column")
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_reports_html_column()
     try:
         from pgvector_support import ensure_pgvector_schema
 

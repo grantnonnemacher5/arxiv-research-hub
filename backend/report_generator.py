@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from classifier import BUCKET_DESCRIPTIONS
 from config import OPENAI_API_KEY, OPENAI_CHAT_MODEL, REPORTS_DIR, REPORT_SUMMARY_CACHE
-from database import Paper, Report, ReportLlmCache
+from database import Paper, Report, ReportLlmCache, strip_nul_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -283,10 +283,18 @@ def generate_report(period: str, db: Session) -> str:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = (REPORTS_DIR / filename).resolve()
     html_doc = _html_doc(period, start, end, now, exec_par, bucket_blocks, len(papers))
-    out_path.write_text(html_doc, encoding="utf-8")
+    html_safe = strip_nul_bytes(html_doc) or ""
+    out_path.write_text(html_safe, encoding="utf-8")
 
     rel = filename
-    db.add(Report(period=period, file_path=rel, generated_at=now.replace(tzinfo=None)))
+    db.add(
+        Report(
+            period=period,
+            file_path=rel,
+            generated_at=now.replace(tzinfo=None),
+            html_content=html_safe,
+        )
+    )
     db.commit()
     logger.info("Wrote report %s (%s papers)", out_path, len(papers))
     return rel
