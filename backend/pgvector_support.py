@@ -16,16 +16,9 @@ from config import OPENAI_EMBED_DIMENSION
 logger = logging.getLogger(__name__)
 
 
-def _psycopg2_conn(db: Session):
-    """
-    Raw DB-API connection for pgvector's psycopg2 helpers.
-    SQLAlchemy 2 uses driver_connection; older code used .connection.
-    """
-    sa_conn = db.connection()
-    raw = getattr(sa_conn, "driver_connection", None)
-    if raw is not None:
-        return raw
-    return sa_conn.connection
+def _vector_text_literal(arr: np.ndarray) -> str:
+    """PostgreSQL `vector` input as bracketed float list (no psycopg2 adapter needed)."""
+    return "[" + ",".join(str(float(x)) for x in arr.tolist()) + "]"
 
 
 def is_postgres_engine(engine: Engine) -> bool:
@@ -98,18 +91,11 @@ def sync_paper_embedding_vec(db: Session, paper_id: int, embedding_blob: bytes |
             paper_id,
         )
         return
-    try:
-        from pgvector.psycopg2 import register_vector
-    except ImportError:
-        return
-    conn = _psycopg2_conn(db)
-    register_vector(conn)
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE papers SET embedding_vec = %s::vector WHERE id = %s",
-        (arr.astype(float), paper_id),
+    lit = _vector_text_literal(arr)
+    db.execute(
+        text("UPDATE papers SET embedding_vec = CAST(:v AS vector) WHERE id = :id"),
+        {"v": lit, "id": paper_id},
     )
-    cur.close()
 
 
 def count_pgvector_indexed(db: Session) -> int:
@@ -143,32 +129,34 @@ def semantic_ann_candidates(
         logger.warning("Query embedding dim %s != %s", q.size, OPENAI_EMBED_DIMENSION)
         return None
     q32 = q.astype(np.float32)
-    try:
-        from pgvector.psycopg2 import register_vector
-    except ImportError:
-        return None
-    conn = _psycopg2_conn(db)
-    register_vector(conn)
-    cur = conn.cursor()
-    params: list[object] = [q32]
-    bucket_sql = ""
+    lit = _vector_text_literal(q32)
     if bucket and bucket.strip():
-        bucket_sql = " AND buckets LIKE %s"
-        params.append(f"%{bucket.strip()}%")
-    params.append(top_k)
-    cur.execute(
-        f"""
-        SELECT id, embedding_vec <=> %s::vector AS dist
-        FROM papers
-        WHERE embedding_vec IS NOT NULL
-        {bucket_sql}
-        ORDER BY dist ASC
-        LIMIT %s
-        """,
-        tuple(params),
-    )
-    rows = cur.fetchall()
-    cur.close()
+        rows = db.execute(
+            text(
+                """
+                SELECT id, (embedding_vec <=> CAST(:qv AS vector)) AS dist
+                FROM papers
+                WHERE embedding_vec IS NOT NULL
+                  AND buckets LIKE :bp
+                ORDER BY dist ASC
+                LIMIT :lim
+                """
+            ),
+            {"qv": lit, "bp": f"%{bucket.strip()}%", "lim": top_k},
+        ).fetchall()
+    else:
+        rows = db.execute(
+            text(
+                """
+                SELECT id, (embedding_vec <=> CAST(:qv AS vector)) AS dist
+                FROM papers
+                WHERE embedding_vec IS NOT NULL
+                ORDER BY dist ASC
+                LIMIT :lim
+                """
+            ),
+            {"qv": lit, "lim": top_k},
+        ).fetchall()
     # Map cosine distance to similarity-like score for ordering tie-breaks (dense rerank recomputes exact).
     out: list[tuple[int, float]] = []
     for pid, dist in rows:
@@ -186,10 +174,6 @@ def backfill_embedding_vec_from_blobs(db: Session, batch_limit: int = 500) -> in
     bind = db.get_bind()
     if not is_postgres_engine(bind):
         return 0
-    try:
-        from pgvector.psycopg2 import register_vector
-    except ImportError:
-        return 0
     rows = db.execute(
         text(
             """
@@ -202,9 +186,6 @@ def backfill_embedding_vec_from_blobs(db: Session, batch_limit: int = 500) -> in
     ).fetchall()
     if not rows:
         return 0
-    conn = _psycopg2_conn(db)
-    register_vector(conn)
-    cur = conn.cursor()
     updated = 0
     for pid, emb_blob in rows:
         if not emb_blob:
@@ -213,12 +194,17 @@ def backfill_embedding_vec_from_blobs(db: Session, batch_limit: int = 500) -> in
         arr = np.frombuffer(raw, dtype=np.float32)
         if arr.size != OPENAI_EMBED_DIMENSION:
             continue
-        cur.execute(
-            "UPDATE papers SET embedding_vec = %s::vector WHERE id = %s AND embedding_vec IS NULL",
-            (arr.astype(float), int(pid)),
+        lit = _vector_text_literal(arr)
+        res = db.execute(
+            text(
+                """
+                UPDATE papers SET embedding_vec = CAST(:v AS vector)
+                WHERE id = :id AND embedding_vec IS NULL
+                """
+            ),
+            {"v": lit, "id": int(pid)},
         )
-        updated += cur.rowcount or 0
-    cur.close()
+        updated += res.rowcount or 0
     if updated:
         db.commit()
         logger.info("pgvector backfill: wrote embedding_vec for %s papers", updated)
