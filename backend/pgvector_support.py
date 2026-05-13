@@ -16,6 +16,18 @@ from config import OPENAI_EMBED_DIMENSION
 logger = logging.getLogger(__name__)
 
 
+def _psycopg2_conn(db: Session):
+    """
+    Raw DB-API connection for pgvector's psycopg2 helpers.
+    SQLAlchemy 2 uses driver_connection; older code used .connection.
+    """
+    sa_conn = db.connection()
+    raw = getattr(sa_conn, "driver_connection", None)
+    if raw is not None:
+        return raw
+    return sa_conn.connection
+
+
 def is_postgres_engine(engine: Engine) -> bool:
     return engine.dialect.name == "postgresql"
 
@@ -90,7 +102,7 @@ def sync_paper_embedding_vec(db: Session, paper_id: int, embedding_blob: bytes |
         from pgvector.psycopg2 import register_vector
     except ImportError:
         return
-    conn = db.connection().connection
+    conn = _psycopg2_conn(db)
     register_vector(conn)
     cur = conn.cursor()
     cur.execute(
@@ -135,7 +147,7 @@ def semantic_ann_candidates(
         from pgvector.psycopg2 import register_vector
     except ImportError:
         return None
-    conn = db.connection().connection
+    conn = _psycopg2_conn(db)
     register_vector(conn)
     cur = conn.cursor()
     params: list[object] = [q32]
@@ -190,7 +202,7 @@ def backfill_embedding_vec_from_blobs(db: Session, batch_limit: int = 500) -> in
     ).fetchall()
     if not rows:
         return 0
-    conn = db.connection().connection
+    conn = _psycopg2_conn(db)
     register_vector(conn)
     cur = conn.cursor()
     updated = 0
