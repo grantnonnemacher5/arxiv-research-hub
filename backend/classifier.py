@@ -1,8 +1,9 @@
-"""OpenAI embeddings + cosine similarity bucket labels (plan Day 2)."""
+"""Bucket labels: OpenAI embeddings + cosine similarity when a key is set; otherwise keyword heuristics (no API)."""
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Iterable
 
 import numpy as np
@@ -34,6 +35,8 @@ BUCKET_DESCRIPTIONS: dict[str, str] = {
 
 _client: OpenAI | None = None
 _bucket_vectors: dict[str, np.ndarray] | None = None
+_bucket_keyword_sets: dict[str, set[str]] | None = None
+_logged_keyword_classifier = False
 
 
 def _get_client() -> OpenAI:
@@ -88,26 +91,86 @@ def paper_text_for_embedding(full_text: str | None, abstract: str) -> str:
 
 
 def classification_input_text(full_text: str | None, abstract: str) -> str:
-    """Text sent to the embedding model for bucket labels (cost-aware when abstract-only)."""
+    """Text used for bucket labels (abstract-only when CLASSIFY_FROM_ABSTRACT)."""
     if CLASSIFY_FROM_ABSTRACT:
         return (abstract or "").strip()[:12000]
     return paper_text_for_embedding(full_text, abstract)
 
 
-def classify_paper_text(text: str) -> tuple[list[str], bytes]:
-    """
-    Returns (bucket names, float32 embedding bytes for the paper text).
-    If text is empty, returns ([], b'').
-    """
-    text = (text or "").strip()
-    if not text:
-        return [], b""
+def _ensure_bucket_keyword_sets() -> dict[str, set[str]]:
+    """Lowercase keywords/phrases derived from bucket descriptions + a few hand-picked hints."""
+    global _bucket_keyword_sets
+    if _bucket_keyword_sets is not None:
+        return _bucket_keyword_sets
+    extras: dict[str, set[str]] = {
+        "General AI": {
+            "llm", "gpt", "transformer", "neural", "network", "pytorch", "tensorflow",
+            "attention", "diffusion", "vision", "classification", "segmentation",
+        },
+        "Autonomous Agents": {
+            "agent", "agents", "multi-agent", "reinforcement", "policy", "planning",
+            "decision", "autonomous", "robot", "tool", "orchestration",
+        },
+        "AI x Finance": {
+            "portfolio", "trading", "market", "risk", "equity", "asset", "pricing",
+            "volatility", "derivative", "hedge", "return", "forecast", "credit",
+        },
+    }
+    out: dict[str, set[str]] = {}
+    for name, desc in BUCKET_DESCRIPTIONS.items():
+        words = set(re.findall(r"[a-z]{4,}", desc.lower()))
+        words |= extras.get(name, set())
+        out[name] = words
+    _bucket_keyword_sets = out
+    return out
 
+
+def classify_paper_text_keyword(text: str) -> tuple[list[str], bytes]:
+    """
+    Assign buckets from keyword overlap with theme text (no network, no embeddings).
+    Returns ([labels], b'') — embedding bytes empty until OpenAI path runs.
+    """
+    global _logged_keyword_classifier
+    if not _logged_keyword_classifier:
+        logger.info("Using keyword-only bucket classifier (OPENAI_API_KEY unset)")
+        _logged_keyword_classifier = True
+    hay = text.lower()
+    scored: list[tuple[str, float, int]] = []
+    for name, kws in _ensure_bucket_keyword_sets().items():
+        hits = sum(1 for w in kws if w in hay)
+        norm = hits / (len(kws) ** 0.5 + 0.01)
+        scored.append((name, float(norm), hits))
+    scored.sort(key=lambda x: -x[1])
+    best_name, best_s, best_hits = scored[0]
+    if best_hits == 0:
+        return [best_name], b""
+    rel = 0.55
+    labels = [n for n, s, h in scored if h > 0 and s >= best_s * rel]
+    if not labels:
+        labels = [best_name]
+    return labels, b""
+
+
+def _classify_paper_text_openai(text: str) -> tuple[list[str], bytes]:
     paper_vec = np.asarray(_embed_batch([text[:12000]])[0], dtype=np.float64)
     buckets = _ensure_bucket_vectors()
     labels = _labels_for_paper_vector(paper_vec, buckets)
     emb_bytes = paper_vec.astype(np.float32).tobytes()
     return labels, emb_bytes
+
+
+def classify_paper_text(text: str) -> tuple[list[str], bytes]:
+    """
+    Returns (bucket names, float32 embedding bytes for the paper text).
+    With OPENAI_API_KEY: OpenAI embeddings + cosine vs bucket vectors.
+    Without key: keyword overlap heuristics, empty embedding bytes.
+    """
+    text = (text or "").strip()
+    if not text:
+        return [], b""
+    if OPENAI_API_KEY:
+        return _classify_paper_text_openai(text)
+    return classify_paper_text_keyword(text)
 
 
 def buckets_to_csv(labels: Iterable[str]) -> str:

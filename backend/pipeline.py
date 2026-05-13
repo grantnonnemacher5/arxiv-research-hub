@@ -16,7 +16,6 @@ from classifier import (
     classify_paper_text,
     classification_input_text,
 )
-from config import OPENAI_API_KEY
 from database import Paper, PipelineRun, SessionLocal, init_db, strip_nul_bytes
 from deduplicator import is_duplicate
 from pdf_extractor import extract_text_from_pdf
@@ -60,7 +59,7 @@ def _record_pipeline_run(
 
 
 def _classify_and_pack(text: str) -> tuple[str, bytes | None]:
-    if not OPENAI_API_KEY or not text.strip():
+    if not text.strip():
         return "", None
     try:
         labels, emb = classify_paper_text(text)
@@ -71,10 +70,7 @@ def _classify_and_pack(text: str) -> tuple[str, bytes | None]:
 
 
 def backfill_classifications(db: Session) -> int:
-    """Fill buckets/embedding for rows missing them (e.g. Day 1 ingest)."""
-    if not OPENAI_API_KEY:
-        logger.warning("OPENAI_API_KEY not set; skipping classification backfill")
-        return 0
+    """Fill buckets/embedding for rows missing them (keyword-only when no OpenAI key)."""
     stmt = select(Paper).where(or_(Paper.embedding.is_(None), Paper.buckets == ""))
     rows = list(db.scalars(stmt).all())
     updated = 0

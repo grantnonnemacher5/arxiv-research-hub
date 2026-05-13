@@ -30,6 +30,8 @@ On first startup with a new empty database, `init_db()` runs **`create_all`** so
 cd backend && python3 backfill_pgvector.py
 ```
 
+**Buckets without an OpenAI key:** ingest and `python3 backfill_classifications.py` use **keyword overlap** against the three theme descriptions (no API). Quality is lower than embedding-based tagging. **Embeddings** still require `OPENAI_API_KEY` (then run `backfill_pgvector.py` on Postgres when blobs exist).
+
 Tune with `SEARCH_PGVECTOR_CANDIDATES`, `OPENAI_EMBED_DIMENSION` (must match `OPENAI_EMBED_MODEL`), and `SEARCH_USE_PGVECTOR` — see `backend/config.py`. SQLite stays on in-memory dense scan.
 
 For Postgres **locally** only, you can use Compose and match `docker-compose.yml`:
@@ -65,7 +67,7 @@ npm run dev
 
 UI: http://localhost:5173. If your API isn’t on port 8000, tell Vite where it is, e.g. `VITE_API_BASE_URL=http://127.0.0.1:8001 npm run dev`.
 
-**Vercel (production):** Prefer **`VITE_API_BASE_URL`** in the Vercel project (Settings → Environment Variables) set to your Render URL, then redeploy. If that env never applies to the build, `frontend/src/api.js` falls back to **`PRODUCTION_API_FALLBACK`** in production only—edit that constant if your Render hostname changes. 
+**Vercel (production):** Prefer **`VITE_API_BASE_URL`** in the Vercel project (Settings → Environment Variables) set to your Render URL, then redeploy. If that env never applies to the build, `frontend/src/api.js` falls back to **`PRODUCTION_API_FALLBACK`** in production only—edit that constant if your Render hostname changes.
 
 Optional—one-off ingest from the shell:
 
