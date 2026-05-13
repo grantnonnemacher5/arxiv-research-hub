@@ -2,6 +2,49 @@ import { useEffect, useRef, useState } from 'react'
 import { apiUrl, listReports } from '../api'
 import { friendlyErrorMessage } from '../lib/apiErrors.js'
 
+const PERIOD_LABELS = {
+  '7d': 'Last 7 days',
+  '1m': 'Last 30 days',
+  '3m': 'Last 90 days',
+  '6m': 'Last 6 months',
+  '1y': 'Last 12 months',
+}
+
+function formatShortDate(isoDate) {
+  if (!isoDate) return ''
+  const d = new Date(`${isoDate}T12:00:00Z`)
+  if (Number.isNaN(d.getTime())) return isoDate
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function formatExported(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+/** Readable lines for the Reports list; new filenames embed paper-from / paper-to. */
+function reportListMeta(r) {
+  const windowLabel = PERIOD_LABELS[r.period] || `Window ${r.period}`
+  const exported = formatExported(r.generated_at)
+  const m = r.filename?.match(/papers-(\d{4}-\d{2}-\d{2})-to-(\d{4}-\d{2}-\d{2})/)
+  const primary = `AI themes · ${windowLabel}`
+  if (m) {
+    const paperRange = `Papers ${formatShortDate(m[1])} – ${formatShortDate(m[2])}`
+    const secondary = exported ? `${paperRange} · Exported ${exported}` : paperRange
+    return { primary, secondary, filename: r.filename }
+  }
+  const secondary = exported ? `Exported ${exported}` : null
+  return { primary, secondary, filename: r.filename }
+}
+
 export default function ReportViewer({ refreshKey, onToast }) {
   const onToastRef = useRef(onToast)
 
@@ -59,14 +102,23 @@ export default function ReportViewer({ refreshKey, onToast }) {
 
         {!loading && rows.length > 0 && (
           <ul className="max-h-[min(28rem,50vh)] flex-1 space-y-1 overflow-y-auto pr-1">
-            {rows.slice(0, 20).map((r) => (
+            {rows.slice(0, 20).map((r) => {
+              const meta = reportListMeta(r)
+              return (
               <li
                 key={r.id}
                 className="flex items-center justify-between gap-2 rounded-lg py-2 pl-1 pr-0 hover:bg-slate-50"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs text-slate-600">{r.filename}</p>
-                  <p className="text-[11px] text-slate-400">{r.period}</p>
+                  <p className="truncate text-sm font-medium text-slate-800" title={meta.filename}>
+                    {meta.primary}
+                  </p>
+                  {meta.secondary ? (
+                    <p className="mt-0.5 truncate text-xs text-slate-600">{meta.secondary}</p>
+                  ) : null}
+                  <p className="mt-0.5 truncate font-mono text-[11px] text-slate-400" title={meta.filename}>
+                    {meta.filename}
+                  </p>
                 </div>
                 <a
                   className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-sky-600 hover:bg-sky-50 hover:text-sky-700"
@@ -77,7 +129,8 @@ export default function ReportViewer({ refreshKey, onToast }) {
                   Open
                 </a>
               </li>
-            ))}
+              )
+            })}
           </ul>
         )}
       </div>

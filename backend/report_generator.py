@@ -24,6 +24,18 @@ logger = logging.getLogger(__name__)
 ALLOWED_PERIODS = frozenset({"7d", "1m", "3m", "6m", "1y"})
 
 
+def build_report_filename(period: str, start: date, end: date, now: datetime) -> str:
+    """
+    URL-safe HTML filename: rolling window, paper date span covered, export timestamp.
+    Matches main._safe_report_path: only letters, digits, underscore, hyphen, dot.
+    """
+    safe_period = re.sub(r"[^a-zA-Z0-9_-]+", "", period)
+    stamp = now.strftime("%Y%m%d-%H%M%S")
+    return (
+        f"research-hub_{safe_period}_papers-{start.isoformat()}-to-{end.isoformat()}_exported-{stamp}.html"
+    )
+
+
 def _report_llm_signature(period: str, start: date, end: date, papers: Sequence[Paper], model: str) -> str:
     lines = [period, start.isoformat(), end.isoformat(), model]
     for p in sorted(papers, key=lambda x: x.arxiv_id):
@@ -267,8 +279,7 @@ def generate_report(period: str, db: Session) -> str:
             _report_cache_upsert(db, sig, period, bucket_summaries, exec_par, len(papers))
 
     now = datetime.now(timezone.utc)
-    safe_period = re.sub(r"[^a-zA-Z0-9_-]+", "", period)
-    filename = f"{safe_period}_{now.strftime('%Y%m%d_%H%M%S')}.html"
+    filename = build_report_filename(period, start, end, now)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = (REPORTS_DIR / filename).resolve()
     html_doc = _html_doc(period, start, end, now, exec_par, bucket_blocks, len(papers))
