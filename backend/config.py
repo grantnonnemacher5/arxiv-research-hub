@@ -39,7 +39,7 @@ REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 # ~8000 tokens heuristic (no tiktoken in Day 1 deps)
 FULL_TEXT_MAX_CHARS = int(os.getenv("FULL_TEXT_MAX_CHARS", "32000"))
 # Backfill loads papers in small chunks to avoid OOM on low-RAM hosts (e.g. Render free ~512MB).
-BACKFILL_CLASSIFICATION_BATCH_SIZE = max(1, int(os.getenv("BACKFILL_CLASSIFICATION_BATCH_SIZE", "40")))
+BACKFILL_CLASSIFICATION_BATCH_SIZE = max(1, int(os.getenv("BACKFILL_CLASSIFICATION_BATCH_SIZE", "20")))
 
 ARXIV_QUERIES = [
     "cat:cs.AI",
@@ -65,6 +65,10 @@ def _env_bool(key: str, default: bool) -> bool:
         return default
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
+
+# When true (default): PyMuPDF PDF download during ingest (spikes RAM). Set INGEST_FETCH_PDF=false on
+# Render free tier; frees process memory during sync (not Neon disk). Re-enable when you have more RAM.
+INGEST_FETCH_PDF = _env_bool("INGEST_FETCH_PDF", True)
 
 # When true (default), reuse stored GPT sections for a report if inputs unchanged (saves tokens).
 REPORT_SUMMARY_CACHE = _env_bool("REPORT_SUMMARY_CACHE", True)

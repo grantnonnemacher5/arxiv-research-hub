@@ -4,20 +4,21 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import Date, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from classifier import BUCKET_DESCRIPTIONS
-from config import ARXIV_MAX_RESULTS, CORS_ORIGINS, REPORTS_DIR
+from config import ARXIV_MAX_RESULTS, CORS_ORIGINS, INGEST_FETCH_PDF, REPORTS_DIR
 from database import Paper, PipelineRun, Report, SessionLocal, get_db, init_db
-from pipeline import run_full_pipeline
+from pipeline import close_stale_running_pipeline_runs, pipeline_is_busy, run_full_pipeline
 from report_generator import ALLOWED_PERIODS, generate_report
 from scheduler import shutdown_scheduler, start_scheduler
 from search_hybrid import run_search
@@ -29,6 +30,13 @@ logger = logging.getLogger("main")
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    stale = close_stale_running_pipeline_runs()
+    if stale:
+        logger.info(
+            "Marked %s pipeline run(s) failed (were still 'running' after last crash/deploy)",
+            stale,
+        )
+    logger.info("INGEST_FETCH_PDF=%s", INGEST_FETCH_PDF)
     start_scheduler()
     yield
     shutdown_scheduler()
@@ -258,11 +266,35 @@ def serve_report(filename: str, db: Session = Depends(get_db)):
     return FileResponse(path, media_type="text/html; charset=utf-8")
 
 
+def _manual_pipeline_thread_target() -> None:
+    try:
+        run_full_pipeline(max_results_per_query=ARXIV_MAX_RESULTS, trigger="manual")
+    except Exception:
+        logger.exception("Manual pipeline background thread failed")
+
+
 @app.post("/run-pipeline")
 def run_pipeline_endpoint():
-    try:
-        stats = run_full_pipeline(max_results_per_query=ARXIV_MAX_RESULTS, trigger="manual")
-    except Exception as e:
-        logger.exception("Manual pipeline failed")
-        raise HTTPException(500, detail=str(e)) from e
-    return {"status": "ok", "stats": stats}
+    if pipeline_is_busy():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A sync is already running. Wait for it to finish, then refresh Pipeline runs "
+                "or dashboard stats."
+            ),
+        )
+    threading.Thread(
+        target=_manual_pipeline_thread_target,
+        name="manual-arxiv-pipeline",
+        daemon=False,
+    ).start()
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+            "message": (
+                "Sync started on the server. It can take several minutes (arXiv rate limits). "
+                "Refresh Pipeline runs or stats for progress; you can leave this page."
+            ),
+        },
+    )

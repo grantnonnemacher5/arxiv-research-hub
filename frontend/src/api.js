@@ -77,5 +77,9 @@ export async function listReports() {
 
 export async function runPipeline() {
   const res = await fetch(apiUrl("/run-pipeline"), { method: "POST" });
+  if (res.status === 409) {
+    const text = await res.text();
+    throw new Error(friendlyErrorMessage(text || res.statusText));
+  }
   return parseResponse(res);
 }

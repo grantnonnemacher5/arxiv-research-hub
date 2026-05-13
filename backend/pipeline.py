@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import datetime
 from typing import Any, Literal
@@ -16,6 +17,7 @@ from config import (
     ARXIV_SYNC_MAX_OFFSET_BLOCKS,
     ARXIV_SYNC_STOP_ALL_DUP_STREAK,
     BACKFILL_CLASSIFICATION_BATCH_SIZE,
+    INGEST_FETCH_PDF,
     OPENAI_API_KEY,
 )
 from classifier import (
@@ -30,6 +32,13 @@ from pgvector_support import sync_paper_embedding_vec
 from webhook_notify import send_pipeline_webhook
 
 logger = logging.getLogger(__name__)
+
+_pipeline_lock = threading.Lock()
+
+
+def pipeline_is_busy() -> bool:
+    """True while any thread is inside ``run_full_pipeline``."""
+    return _pipeline_lock.locked()
 
 
 def _create_pipeline_run_started(
@@ -87,6 +96,57 @@ def _finalize_pipeline_run(
         db.commit()
     except Exception:
         logger.exception("Failed to finalize pipeline run id=%s", run_id)
+    finally:
+        db.close()
+
+
+def _update_pipeline_run_progress(run_id: int | None, saved: int, skipped: int, t0: float) -> None:
+    """Update ``running`` row with partial saved/skipped (UI + ops during long syncs)."""
+    if run_id is None:
+        return
+    db = SessionLocal()
+    try:
+        row = db.get(PipelineRun, run_id)
+        if row is None or row.status != "running":
+            return
+        row.saved = saved
+        row.skipped_duplicates = skipped
+        row.duration_ms = max(0, int((time.monotonic() - t0) * 1000))
+        db.commit()
+    except Exception:
+        logger.debug("Pipeline run progress update failed", exc_info=True)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def close_stale_running_pipeline_runs() -> int:
+    """Mark ``running`` rows failed after OOM/deploy/SIGKILL (never finalized)."""
+    db = SessionLocal()
+    try:
+        rows = list(db.scalars(select(PipelineRun).where(PipelineRun.status == "running")).all())
+        if not rows:
+            return 0
+        now = datetime.utcnow()
+        n = 0
+        for row in rows:
+            row.status = "failed"
+            row.finished_at = now
+            row.error = (
+                "Interrupted before completion (deploy, instance restart, or out of memory). "
+                "Partial saved/skipped may reflect progress before shutdown."
+            )
+            started = row.started_at
+            if getattr(started, "tzinfo", None) is not None:
+                started = started.replace(tzinfo=None)
+            row.duration_ms = max(0, int((now - started).total_seconds() * 1000))
+            n += 1
+        db.commit()
+        return n
+    except Exception:
+        logger.exception("close_stale_running_pipeline_runs failed")
+        db.rollback()
+        return 0
     finally:
         db.close()
 
@@ -163,13 +223,31 @@ def run_full_pipeline(
     On completion or failure, POST to WEBHOOK_URL when configured.
     Records a PipelineRun row for ops metrics.
     """
+    with _pipeline_lock:
+        return _run_full_pipeline_impl(max_results_per_query, trigger)
+
+
+def _run_full_pipeline_impl(
+    max_results_per_query: int | None = None,
+    trigger: Literal["manual", "scheduled"] = "manual",
+) -> dict[str, Any]:
     init_db()
+    if not INGEST_FETCH_PDF:
+        logger.info("INGEST_FETCH_PDF=false — skipping PDF downloads during ingest (abstract/metadata only)")
     started_at = datetime.utcnow()
     t0 = time.monotonic()
     run_id = _create_pipeline_run_started(trigger, started_at)
     db = SessionLocal()
     saved = 0
     skipped = 0
+    progress_counter = 0
+
+    def bump_progress_checkpoint() -> None:
+        nonlocal progress_counter
+        progress_counter += 1
+        if run_id and progress_counter % 5 == 0:
+            _update_pipeline_run_progress(run_id, saved, skipped, t0)
+
     try:
         all_dup_streak = 0
         for start_block in range(ARXIV_SYNC_MAX_OFFSET_BLOCKS):
@@ -191,9 +269,13 @@ def run_full_pipeline(
             for p in papers:
                 if is_duplicate(p["arxiv_id"], db):
                     skipped += 1
+                    bump_progress_checkpoint()
                     continue
                 pdf_url = p.get("pdf_url") or ""
-                full_text = extract_text_from_pdf(pdf_url) if pdf_url else None
+                if INGEST_FETCH_PDF and pdf_url:
+                    full_text = extract_text_from_pdf(pdf_url)
+                else:
+                    full_text = None
                 full_text = strip_nul_bytes(full_text)
                 text = classification_input_text(full_text, p.get("abstract") or "")
                 bucket_str, emb = _classify_and_pack(text)
@@ -222,9 +304,11 @@ def run_full_pipeline(
                         "Skip %s after IntegrityError (concurrent insert or duplicate)",
                         p.get("arxiv_id"),
                     )
+                    bump_progress_checkpoint()
                     continue
                 saved += 1
                 block_new += 1
+                bump_progress_checkpoint()
                 logger.info("Ingested %s — %s", p["arxiv_id"], (p.get("title") or "")[:80])
             if block_new > 0:
                 all_dup_streak = 0
@@ -237,6 +321,8 @@ def run_full_pipeline(
                     )
                     break
 
+        if run_id:
+            _update_pipeline_run_progress(run_id, saved, skipped, t0)
         backfilled = backfill_classifications(db)
         stats: dict[str, Any] = {
             "saved": saved,

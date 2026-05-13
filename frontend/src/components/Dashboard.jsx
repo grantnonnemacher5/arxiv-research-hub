@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getStats, runPipeline } from '../api'
 import { friendlyErrorMessage } from '../lib/apiErrors.js'
 import PaperList from './PaperList.jsx'
@@ -12,6 +12,7 @@ export default function Dashboard() {
   const [toast, setToast] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [pipelineLoading, setPipelineLoading] = useState(false)
+  const pipelinePollRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -29,11 +30,43 @@ export default function Dashboard() {
     }
   }, [refreshKey])
 
+  useEffect(() => {
+    return () => {
+      if (pipelinePollRef.current) {
+        clearInterval(pipelinePollRef.current)
+        pipelinePollRef.current = null
+      }
+    }
+  }, [])
+
   async function handlePipeline() {
     setPipelineLoading(true)
     setToast(null)
     try {
       const res = await runPipeline()
+      if (res.status === 'accepted') {
+        if (pipelinePollRef.current) {
+          clearInterval(pipelinePollRef.current)
+          pipelinePollRef.current = null
+        }
+        let ticks = 0
+        pipelinePollRef.current = setInterval(() => {
+          ticks += 1
+          setRefreshKey((k) => k + 1)
+          if (ticks >= 18) {
+            clearInterval(pipelinePollRef.current)
+            pipelinePollRef.current = null
+          }
+        }, 10000)
+        setToast({
+          type: 'ok',
+          text:
+            res.message ||
+            'Sync started on the server. Stats and Pipeline runs refresh every 10s for up to 3 minutes.',
+        })
+        setRefreshKey((k) => k + 1)
+        return
+      }
       const saved = res.stats?.saved ?? 0
       const skipped = res.stats?.skipped_duplicates ?? 0
       const backfilled = res.stats?.backfilled ?? 0
