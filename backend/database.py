@@ -57,7 +57,7 @@ class PipelineRun(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     finished_at: Mapped[datetime] = mapped_column(DateTime)
     trigger: Mapped[str] = mapped_column(String(16))  # manual | scheduled
-    status: Mapped[str] = mapped_column(String(16), index=True)  # completed | failed
+    status: Mapped[str] = mapped_column(String(16), index=True)  # running | completed | failed
     saved: Mapped[int] = mapped_column(Integer, default=0)
     skipped_duplicates: Mapped[int] = mapped_column(Integer, default=0)
     backfilled: Mapped[int] = mapped_column(Integer, default=0)

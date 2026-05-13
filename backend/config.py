@@ -38,6 +38,8 @@ REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ~8000 tokens heuristic (no tiktoken in Day 1 deps)
 FULL_TEXT_MAX_CHARS = int(os.getenv("FULL_TEXT_MAX_CHARS", "32000"))
+# Backfill loads papers in small chunks to avoid OOM on low-RAM hosts (e.g. Render free ~512MB).
+BACKFILL_CLASSIFICATION_BATCH_SIZE = max(1, int(os.getenv("BACKFILL_CLASSIFICATION_BATCH_SIZE", "40")))
 
 ARXIV_QUERIES = [
     "cat:cs.AI",

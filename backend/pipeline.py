@@ -8,10 +8,16 @@ from datetime import datetime
 from typing import Any, Literal
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from arxiv_ingestion import fetch_all_bucket_queries
-from config import ARXIV_SYNC_MAX_OFFSET_BLOCKS, ARXIV_SYNC_STOP_ALL_DUP_STREAK
+from config import (
+    ARXIV_SYNC_MAX_OFFSET_BLOCKS,
+    ARXIV_SYNC_STOP_ALL_DUP_STREAK,
+    BACKFILL_CLASSIFICATION_BATCH_SIZE,
+    OPENAI_API_KEY,
+)
 from classifier import (
     buckets_to_csv,
     classify_paper_text,
@@ -26,10 +32,37 @@ from webhook_notify import send_pipeline_webhook
 logger = logging.getLogger(__name__)
 
 
-def _record_pipeline_run(
-    *,
-    started_at: datetime,
+def _create_pipeline_run_started(
     trigger: Literal["manual", "scheduled"],
+    started_at: datetime,
+) -> int | None:
+    """Insert a ``running`` row so deploy/OOM mid-sync still leaves a visible audit row."""
+    db = SessionLocal()
+    try:
+        row = PipelineRun(
+            started_at=started_at,
+            finished_at=started_at,
+            trigger=trigger,
+            status="running",
+            saved=0,
+            skipped_duplicates=0,
+            backfilled=0,
+            duration_ms=0,
+            error=None,
+        )
+        db.add(row)
+        db.commit()
+        return int(row.id)
+    except Exception:
+        logger.exception("Failed to create started pipeline run")
+        return None
+    finally:
+        db.close()
+
+
+def _finalize_pipeline_run(
+    run_id: int | None,
+    *,
     status: Literal["completed", "failed"],
     duration_ms: int,
     saved: int,
@@ -37,24 +70,23 @@ def _record_pipeline_run(
     backfilled: int,
     error: str | None,
 ) -> None:
+    if run_id is None:
+        return
     db = SessionLocal()
     try:
-        db.add(
-            PipelineRun(
-                started_at=started_at,
-                finished_at=datetime.utcnow(),
-                trigger=trigger,
-                status=status,
-                saved=saved,
-                skipped_duplicates=skipped,
-                backfilled=backfilled,
-                duration_ms=max(0, duration_ms),
-                error=error,
-            )
-        )
+        row = db.get(PipelineRun, run_id)
+        if row is None:
+            return
+        row.finished_at = datetime.utcnow()
+        row.status = status
+        row.saved = saved
+        row.skipped_duplicates = skipped
+        row.backfilled = backfilled
+        row.duration_ms = max(0, duration_ms)
+        row.error = error
         db.commit()
     except Exception:
-        logger.exception("Failed to record pipeline run")
+        logger.exception("Failed to finalize pipeline run id=%s", run_id)
     finally:
         db.close()
 
@@ -71,23 +103,52 @@ def _classify_and_pack(text: str) -> tuple[str, bytes | None]:
 
 
 def backfill_classifications(db: Session) -> int:
-    """Fill buckets/embedding for rows missing them (keyword-only when no OpenAI key)."""
-    stmt = select(Paper).where(or_(Paper.embedding.is_(None), Paper.buckets == ""))
-    rows = list(db.scalars(stmt).all())
+    """Fill buckets/embedding for rows missing them (keyword-only when no OpenAI key).
+
+    Keyword mode never persists embeddings (``embedding`` stays NULL). Selecting
+    ``embedding IS NULL`` would therefore match the entire library and load every
+    ``full_text`` at once — enough to OOM small instances (e.g. Render 512MB).
+
+    Uses keyset batches (ordered by id) so we never load the full table and we
+    always advance past a batch even when some rows have no classifiable text.
+    """
+    if OPENAI_API_KEY:
+        filter_cond = or_(Paper.embedding.is_(None), Paper.buckets == "")
+    else:
+        filter_cond = Paper.buckets == ""
+
     updated = 0
-    for row in rows:
-        text = classification_input_text(row.full_text, row.abstract)
-        if not text:
-            continue
-        buckets, emb = classify_paper_text(text)
-        row.buckets = strip_nul_bytes(buckets_to_csv(buckets)) or ""
-        row.embedding = emb if emb else None
-        db.flush()
-        if emb:
-            sync_paper_embedding_vec(db, row.id, emb)
-        updated += 1
-    if updated:
-        db.commit()
+    batch_size = BACKFILL_CLASSIFICATION_BATCH_SIZE
+    cursor_id = 0
+    while True:
+        rows = list(
+            db.scalars(
+                select(Paper)
+                .where(filter_cond, Paper.id > cursor_id)
+                .order_by(Paper.id)
+                .limit(batch_size)
+            ).all()
+        )
+        if not rows:
+            break
+        cursor_id = rows[-1].id
+        batch_updates = 0
+        for row in rows:
+            text = classification_input_text(row.full_text, row.abstract)
+            if not text:
+                continue
+            buckets, emb = classify_paper_text(text)
+            row.buckets = strip_nul_bytes(buckets_to_csv(buckets)) or ""
+            row.embedding = emb if emb else None
+            db.flush()
+            if emb:
+                sync_paper_embedding_vec(db, row.id, emb)
+            updated += 1
+            batch_updates += 1
+        if batch_updates:
+            db.commit()
+        # Release ORM identity map between batches (important on low-RAM hosts).
+        db.expunge_all()
     logger.info("Backfill classification updated %s rows", updated)
     return updated
 
@@ -105,6 +166,7 @@ def run_full_pipeline(
     init_db()
     started_at = datetime.utcnow()
     t0 = time.monotonic()
+    run_id = _create_pipeline_run_started(trigger, started_at)
     db = SessionLocal()
     saved = 0
     skipped = 0
@@ -146,11 +208,21 @@ def run_full_pipeline(
                     buckets=strip_nul_bytes(bucket_str) or "",
                     embedding=emb,
                 )
-                db.add(row)
-                db.flush()
-                if emb:
-                    sync_paper_embedding_vec(db, row.id, emb)
-                db.commit()
+                try:
+                    db.add(row)
+                    db.flush()
+                    if emb:
+                        sync_paper_embedding_vec(db, row.id, emb)
+                    db.commit()
+                except IntegrityError:
+                    # Another sync (or retry) inserted the same arxiv_id after our duplicate check.
+                    db.rollback()
+                    skipped += 1
+                    logger.warning(
+                        "Skip %s after IntegrityError (concurrent insert or duplicate)",
+                        p.get("arxiv_id"),
+                    )
+                    continue
                 saved += 1
                 block_new += 1
                 logger.info("Ingested %s — %s", p["arxiv_id"], (p.get("title") or "")[:80])
@@ -173,9 +245,8 @@ def run_full_pipeline(
         }
         duration_ms = int((time.monotonic() - t0) * 1000)
         send_pipeline_webhook("completed", stats, None, t0)
-        _record_pipeline_run(
-            started_at=started_at,
-            trigger=trigger,
+        _finalize_pipeline_run(
+            run_id,
             status="completed",
             duration_ms=duration_ms,
             saved=saved,
@@ -187,9 +258,8 @@ def run_full_pipeline(
     except Exception as e:
         duration_ms = int((time.monotonic() - t0) * 1000)
         send_pipeline_webhook("failed", None, str(e)[:4000], t0)
-        _record_pipeline_run(
-            started_at=started_at,
-            trigger=trigger,
+        _finalize_pipeline_run(
+            run_id,
             status="failed",
             duration_ms=duration_ms,
             saved=saved,

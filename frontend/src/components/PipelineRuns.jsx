@@ -43,7 +43,9 @@ export default function PipelineRuns() {
         Recent sync jobs — <strong className="font-medium text-slate-600">Saved</strong> is new papers;
         <strong className="font-medium text-slate-600"> skipped</strong> means that arXiv id was already
         in your library. Completed + 0 saved usually means the fetched batch was all duplicates, not a
-        failed sync.
+        failed sync. <strong className="font-medium text-slate-600">Running</strong> (rare) means the job
+        started but the server did not finish the final step — often a deploy/restart or crash; papers
+        saved before that moment may still be in the database.
       </p>
       {err && (
         <p className="mt-3 text-sm text-red-700" role="alert">
@@ -106,7 +108,9 @@ export default function PipelineRuns() {
                       className={
                         r.status === 'completed'
                           ? 'rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900'
-                          : 'rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-900'
+                          : r.status === 'running'
+                            ? 'rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-950'
+                            : 'rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-900'
                       }
                     >
                       {r.status}
@@ -127,7 +131,12 @@ export default function PipelineRuns() {
                   >
                     <span className="tabular-nums">{formatDurationMs(r.duration_ms)}</span>
                   </td>
-                  <td className="max-w-[220px] truncate px-3 py-2.5 text-xs text-red-800" title={r.error || ''}>
+                  <td
+                    className={`max-w-[220px] truncate px-3 py-2.5 text-xs ${
+                      r.status === 'failed' ? 'text-red-800' : 'text-slate-600'
+                    }`}
+                    title={r.error || ''}
+                  >
                     {r.error || '—'}
                   </td>
                 </tr>
