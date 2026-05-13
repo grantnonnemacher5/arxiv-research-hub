@@ -122,7 +122,7 @@ export default function PaperSearch() {
           <button
             type="submit"
             disabled={loading}
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50"
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-sky-500 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:opacity-50"
           >
             {loading ? 'Searching…' : 'Search'}
           </button>
