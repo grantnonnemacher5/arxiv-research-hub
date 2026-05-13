@@ -37,28 +37,31 @@ export default function PipelineRuns({ refreshKey }) {
         <p className="mt-4 text-sm text-slate-500">No runs recorded yet. Run &quot;Sync arXiv&quot; once.</p>
       )}
       {!err && runs && runs.length > 0 && (
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[720px] border-collapse text-left text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="py-2 pr-3">Finished</th>
-                <th className="py-2 pr-3">Trigger</th>
-                <th className="py-2 pr-3">Status</th>
-                <th className="py-2 pr-2 text-right">Saved</th>
-                <th className="py-2 pr-2 text-right">Skipped</th>
-                <th className="py-2 pr-2 text-right">Backfill</th>
-                <th className="py-2 pr-2 text-right">ms</th>
-                <th className="py-2">Error</th>
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                <th className="border-r border-slate-200 px-3 py-2.5">Finished</th>
+                <th className="border-r border-slate-200 px-3 py-2.5">Trigger</th>
+                <th className="border-r border-slate-200 px-3 py-2.5">Status</th>
+                <th className="border-r border-slate-200 px-3 py-2.5 text-right">Saved</th>
+                <th className="border-r border-slate-200 px-3 py-2.5 text-right">Skipped</th>
+                <th className="border-r border-slate-200 px-3 py-2.5 text-right">Backfill</th>
+                <th className="border-r border-slate-200 px-3 py-2.5 text-right">Duration</th>
+                <th className="px-3 py-2.5">Error</th>
               </tr>
             </thead>
             <tbody>
               {runs.map((r) => (
-                <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                  <td className="py-2 pr-3 font-mono text-xs text-slate-700">
+                <tr
+                  key={r.id}
+                  className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60 last:border-b-0"
+                >
+                  <td className="border-r border-slate-200 px-3 py-2.5 font-mono text-xs text-slate-700">
                     {r.finished_at ? formatLocal(r.finished_at) : '—'}
                   </td>
-                  <td className="py-2 pr-3 text-slate-700">{r.trigger}</td>
-                  <td className="py-2 pr-3">
+                  <td className="border-r border-slate-200 px-3 py-2.5 text-slate-700">{r.trigger}</td>
+                  <td className="border-r border-slate-200 px-3 py-2.5">
                     <span
                       className={
                         r.status === 'completed'
@@ -69,11 +72,22 @@ export default function PipelineRuns({ refreshKey }) {
                       {r.status}
                     </span>
                   </td>
-                  <td className="py-2 pr-2 text-right tabular-nums text-slate-800">{r.saved}</td>
-                  <td className="py-2 pr-2 text-right tabular-nums text-slate-800">{r.skipped_duplicates}</td>
-                  <td className="py-2 pr-2 text-right tabular-nums text-slate-800">{r.backfilled}</td>
-                  <td className="py-2 pr-2 text-right tabular-nums text-slate-600">{r.duration_ms}</td>
-                  <td className="max-w-[200px] truncate py-2 text-xs text-red-800" title={r.error || ''}>
+                  <td className="border-r border-slate-200 px-3 py-2.5 text-right tabular-nums text-slate-800">
+                    {r.saved}
+                  </td>
+                  <td className="border-r border-slate-200 px-3 py-2.5 text-right tabular-nums text-slate-800">
+                    {r.skipped_duplicates}
+                  </td>
+                  <td className="border-r border-slate-200 px-3 py-2.5 text-right tabular-nums text-slate-800">
+                    {r.backfilled}
+                  </td>
+                  <td
+                    className="border-r border-slate-200 px-3 py-2.5 text-right text-slate-700"
+                    title={r.duration_ms != null ? `${r.duration_ms.toLocaleString()} ms` : ''}
+                  >
+                    <span className="tabular-nums">{formatDurationMs(r.duration_ms)}</span>
+                  </td>
+                  <td className="max-w-[220px] truncate px-3 py-2.5 text-xs text-red-800" title={r.error || ''}>
                     {r.error || '—'}
                   </td>
                 </tr>
@@ -98,4 +112,19 @@ function formatLocal(iso) {
   } catch {
     return iso
   }
+}
+
+/** Human-readable run length; hover shows exact ms for ops. */
+function formatDurationMs(ms) {
+  if (ms == null || Number.isNaN(ms) || ms < 0) return '—'
+  const n = Math.floor(Number(ms))
+  if (n < 1000) return `${n} ms`
+  const sec = Math.floor(n / 1000)
+  if (sec < 60) return `${sec}s`
+  const min = Math.floor(sec / 60)
+  const s = sec % 60
+  if (min < 60) return `${min}m ${s}s`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return `${h}h ${m}m`
 }
