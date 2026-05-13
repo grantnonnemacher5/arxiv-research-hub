@@ -28,6 +28,10 @@ ARXIV_MAX_RESULTS = int(os.getenv("ARXIV_MAX_RESULTS", "50"))
 # Per category: pages at max_results each (start=0, then start=max_results, …). >1 reaches older
 # submissions when the first page is already fully ingested (common after initial backfill).
 ARXIV_PAGE_COUNT = max(1, int(os.getenv("ARXIV_PAGE_COUNT", "2")))
+# When an offset block returns only DB duplicates, advance deeper into arXiv (per category) up to this many blocks.
+ARXIV_SYNC_MAX_OFFSET_BLOCKS = max(1, int(os.getenv("ARXIV_SYNC_MAX_OFFSET_BLOCKS", "6")))
+# Stop after this many consecutive blocks that had candidates but 0 new saves (avoids endless API calls).
+ARXIV_SYNC_STOP_ALL_DUP_STREAK = max(1, int(os.getenv("ARXIV_SYNC_STOP_ALL_DUP_STREAK", "3")))
 SCHEDULE_HOUR = int(os.getenv("SCHEDULE_HOUR", "8"))
 REPORTS_DIR = Path(os.getenv("REPORTS_DIR", str(_PROJECT_ROOT / "reports")))
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)

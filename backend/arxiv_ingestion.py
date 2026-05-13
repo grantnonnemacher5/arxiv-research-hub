@@ -108,15 +108,19 @@ def fetch_arxiv_papers(
 
 def fetch_all_bucket_queries(
     max_results_per_query: int | None = None,
+    start_block: int = 0,
 ) -> list[dict[str, Any]]:
     """Fetch from each configured category; de-dupe by arxiv_id within this run.
 
-    Uses ARXIV_PAGE_COUNT offset pages per category so sync can still find new papers after the
-    newest N per category are already in the database.
+    Uses ARXIV_PAGE_COUNT offset pages per category. ``start_block`` shifts the whole window
+    deeper (older) by ``start_block * ARXIV_PAGE_COUNT * max_results`` rows per category so sync
+    can keep ingesting after the newest pages are already in the database.
     """
     max_results_per_query = (
         max_results_per_query if max_results_per_query is not None else ARXIV_MAX_RESULTS
     )
+    block_stride = ARXIV_PAGE_COUNT * max_results_per_query
+    base_start = start_block * block_stride
     seen: set[str] = set()
     merged: list[dict[str, Any]] = []
     first_request = True
@@ -126,7 +130,7 @@ def fetch_all_bucket_queries(
             if not first_request:
                 time.sleep(3.1)  # arXiv asks for ~3s between requests
             first_request = False
-            start = page * max_results_per_query
+            start = base_start + page * max_results_per_query
             try:
                 batch = fetch_arxiv_papers(full_q, max_results=max_results_per_query, start=start)
             except Exception as exc:

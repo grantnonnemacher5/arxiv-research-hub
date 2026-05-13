@@ -11,6 +11,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from arxiv_ingestion import fetch_all_bucket_queries
+from config import ARXIV_SYNC_MAX_OFFSET_BLOCKS, ARXIV_SYNC_STOP_ALL_DUP_STREAK
 from classifier import (
     buckets_to_csv,
     classify_paper_text,
@@ -108,35 +109,61 @@ def run_full_pipeline(
     saved = 0
     skipped = 0
     try:
-        papers = fetch_all_bucket_queries(max_results_per_query=max_results_per_query)
-        logger.info("Pipeline fetched %s candidate papers", len(papers))
-        for p in papers:
-            if is_duplicate(p["arxiv_id"], db):
-                skipped += 1
-                continue
-            pdf_url = p.get("pdf_url") or ""
-            full_text = extract_text_from_pdf(pdf_url) if pdf_url else None
-            full_text = strip_nul_bytes(full_text)
-            text = classification_input_text(full_text, p.get("abstract") or "")
-            bucket_str, emb = _classify_and_pack(text)
-            row = Paper(
-                arxiv_id=strip_nul_bytes(p["arxiv_id"]) or "",
-                title=strip_nul_bytes(p["title"]) or "",
-                authors=strip_nul_bytes(p["authors"]) or "",
-                abstract=strip_nul_bytes(p.get("abstract") or "") or "",
-                full_text=full_text,
-                pdf_url=strip_nul_bytes(pdf_url) or "",
-                published_date=p.get("published_date"),
-                buckets=strip_nul_bytes(bucket_str) or "",
-                embedding=emb,
+        all_dup_streak = 0
+        for start_block in range(ARXIV_SYNC_MAX_OFFSET_BLOCKS):
+            if start_block > 0:
+                time.sleep(3.1)
+            papers = fetch_all_bucket_queries(
+                max_results_per_query=max_results_per_query,
+                start_block=start_block,
             )
-            db.add(row)
-            db.flush()
-            if emb:
-                sync_paper_embedding_vec(db, row.id, emb)
-            db.commit()
-            saved += 1
-            logger.info("Ingested %s — %s", p["arxiv_id"], (p.get("title") or "")[:80])
+            logger.info(
+                "Pipeline arXiv offset block %s: %s candidate papers",
+                start_block,
+                len(papers),
+            )
+            if not papers:
+                logger.info("Pipeline: no arXiv candidates at offset block %s; stopping", start_block)
+                break
+            block_new = 0
+            for p in papers:
+                if is_duplicate(p["arxiv_id"], db):
+                    skipped += 1
+                    continue
+                pdf_url = p.get("pdf_url") or ""
+                full_text = extract_text_from_pdf(pdf_url) if pdf_url else None
+                full_text = strip_nul_bytes(full_text)
+                text = classification_input_text(full_text, p.get("abstract") or "")
+                bucket_str, emb = _classify_and_pack(text)
+                row = Paper(
+                    arxiv_id=strip_nul_bytes(p["arxiv_id"]) or "",
+                    title=strip_nul_bytes(p["title"]) or "",
+                    authors=strip_nul_bytes(p["authors"]) or "",
+                    abstract=strip_nul_bytes(p.get("abstract") or "") or "",
+                    full_text=full_text,
+                    pdf_url=strip_nul_bytes(pdf_url) or "",
+                    published_date=p.get("published_date"),
+                    buckets=strip_nul_bytes(bucket_str) or "",
+                    embedding=emb,
+                )
+                db.add(row)
+                db.flush()
+                if emb:
+                    sync_paper_embedding_vec(db, row.id, emb)
+                db.commit()
+                saved += 1
+                block_new += 1
+                logger.info("Ingested %s — %s", p["arxiv_id"], (p.get("title") or "")[:80])
+            if block_new > 0:
+                all_dup_streak = 0
+            else:
+                all_dup_streak += 1
+                if all_dup_streak >= ARXIV_SYNC_STOP_ALL_DUP_STREAK:
+                    logger.info(
+                        "Pipeline: stopping after %s consecutive blocks with no new saves",
+                        all_dup_streak,
+                    )
+                    break
 
         backfilled = backfill_classifications(db)
         stats: dict[str, Any] = {
