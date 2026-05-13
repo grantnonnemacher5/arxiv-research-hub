@@ -29,7 +29,7 @@ export default function PipelineRuns({ refreshKey }) {
         Recent sync jobs — <strong className="font-medium text-slate-600">Saved</strong> is new papers;
         <strong className="font-medium text-slate-600"> skipped</strong> means that arXiv id was already
         in your library. Completed + 0 saved usually means the fetched batch was all duplicates, not a
-        failed sync. <span className="text-slate-400">Finished times: US Central (Chicago).</span>
+        failed sync.
       </p>
       {err && (
         <p className="mt-3 text-sm text-red-700" role="alert">
