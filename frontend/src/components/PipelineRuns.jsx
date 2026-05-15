@@ -4,7 +4,7 @@ import { friendlyErrorMessage } from "../lib/apiErrors.js";
 
 const PAGE_SIZE = 10;
 
-export default function PipelineRuns() {
+export default function PipelineRuns({ refreshKey = 0 }) {
   const [page, setPage] = useState(1);
   const [payload, setPayload] = useState(null);
   const [err, setErr] = useState(null);
@@ -14,14 +14,17 @@ export default function PipelineRuns() {
     let cancelled = false;
     (async () => {
       setErr(null);
-      setLoading(true);
+      // Only show the big "Loading runs…" spinner on the *initial* fetch.
+      // Background refreshes (refreshKey bump) keep the table visible, so it
+      // never flickers between "Loading runs…" and the rendered table while
+      // a sync is running.
+      if (!payload) setLoading(true);
       try {
         const data = await getPipelineRuns({ page, pageSize: PAGE_SIZE });
         if (!cancelled) setPayload(data);
       } catch (e) {
         if (!cancelled) {
           setErr(friendlyErrorMessage(e?.message || e));
-          setPayload(null);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -30,7 +33,10 @@ export default function PipelineRuns() {
     return () => {
       cancelled = true;
     };
-  }, [page]);
+    // We intentionally exclude `payload` — it is only read to decide whether
+    // to show the initial spinner, and including it would re-run on every fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, refreshKey]);
 
   const total = payload?.total ?? 0;
   const items = payload?.items ?? [];

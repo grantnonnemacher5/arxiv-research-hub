@@ -302,9 +302,23 @@ def _run_full_pipeline_impl(
                     full_text = extract_text_from_pdf(pdf_url)
                 else:
                     full_text = None
+                if pipeline_cancel_requested():
+                    cancelled_early = True
+                    logger.info(
+                        "Pipeline: cancel requested after PDF fetch for %s — skipping save",
+                        p.get("arxiv_id"),
+                    )
+                    break
                 full_text = strip_nul_bytes(full_text)
                 text = classification_input_text(full_text, p.get("abstract") or "")
                 bucket_str, emb = _classify_and_pack(text)
+                if pipeline_cancel_requested():
+                    cancelled_early = True
+                    logger.info(
+                        "Pipeline: cancel requested after classify for %s — skipping save",
+                        p.get("arxiv_id"),
+                    )
+                    break
                 row = Paper(
                     arxiv_id=strip_nul_bytes(p["arxiv_id"]) or "",
                     title=strip_nul_bytes(p["title"]) or "",

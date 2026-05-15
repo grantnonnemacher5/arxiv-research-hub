@@ -14,6 +14,8 @@ export default function Dashboard() {
   const [pipelineLoading, setPipelineLoading] = useState(false)
   const [syncInProgress, setSyncInProgress] = useState(false)
   const [cancelLoading, setCancelLoading] = useState(false)
+  /** Sticks once the user clicks Stop, until the backend marks the run finished. */
+  const [cancelRequested, setCancelRequested] = useState(false)
   const pipelinePollRef = useRef(null)
   /** True once we have seen either in-memory busy or a DB `running` row (works across API workers). */
   const pipelineEverSawActiveRef = useRef(false)
@@ -108,6 +110,7 @@ export default function Dashboard() {
 
         stopPipelineSyncWatch()
         setSyncInProgress(false)
+        setCancelRequested(false)
         let toastType = 'ok'
         let text = 'Sync finished — stats and runs updated.'
         try {
@@ -138,6 +141,7 @@ export default function Dashboard() {
     setToast(null)
     try {
       await cancelPipeline()
+      setCancelRequested(true)
       setToast({
         type: 'ok',
         text: 'Stop requested — ingest stops after the current paper (if any).',
@@ -156,6 +160,7 @@ export default function Dashboard() {
       const res = await runPipeline()
       if (res.status === 'accepted') {
         stopPipelineSyncWatch()
+        setCancelRequested(false)
         setSyncInProgress(true)
         startPipelineSyncWatch()
         setToast({
@@ -212,14 +217,19 @@ export default function Dashboard() {
           {syncInProgress ? (
             <button
               type="button"
-              disabled={cancelLoading}
+              disabled={cancelLoading || cancelRequested}
               onClick={handleCancelPipeline}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+              title={
+                cancelRequested
+                  ? 'Stop already requested — finishing the current paper before exit.'
+                  : 'Stop the running sync (takes effect between papers).'
+              }
             >
-              {cancelLoading ? (
+              {cancelLoading || cancelRequested ? (
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" />
               ) : null}
-              {cancelLoading ? 'Stopping…' : 'Stop sync'}
+              {cancelLoading ? 'Stopping…' : cancelRequested ? 'Stopping…' : 'Stop sync'}
             </button>
           ) : null}
         </div>
@@ -251,7 +261,7 @@ export default function Dashboard() {
       </div>
 
       <div className="mb-10">
-        <PipelineRuns key={refreshKey} />
+        <PipelineRuns refreshKey={refreshKey} />
       </div>
 
       <section className="mb-10 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
