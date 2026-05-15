@@ -39,6 +39,27 @@ export default function Dashboard() {
     }
   }, [refreshKey])
 
+  // If the user refreshes mid-sync, pick up the running pipeline and show Stop.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const b = await getPipelineBusy()
+        if (cancelled) return
+        if (b?.busy) {
+          setSyncInProgress(true)
+          startPipelineSyncWatch()
+        }
+      } catch {
+        /* ignore — user can press Sync to start one */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     return () => {
       stopPipelineSyncWatch()
@@ -53,8 +74,10 @@ export default function Dashboard() {
   }
 
   /**
-   * Keep Stop visible until the pipeline is clearly finished.
-   * Uses DB `running` rows — not only `GET /pipeline-status` — so multi-worker APIs still work.
+   * Keep Stop visible while the pipeline is active. Polls only ``/pipeline-status``
+   * (which is now DB-aware on the backend) so we make a single fast request per
+   * tick and never re-fetch the runs table from here. PipelineRuns owns its own
+   * refresh schedule, so dashboards no longer hammer 6 endpoints per tick.
    */
   function startPipelineSyncWatch() {
     stopPipelineSyncWatch()
@@ -62,7 +85,7 @@ export default function Dashboard() {
     pipelineIdleStreakRef.current = 0
     pipelineWatchStartedAtRef.current = Date.now()
 
-    const pollMs = 1600
+    const pollMs = 2500
 
     const tick = async () => {
       try {
@@ -71,22 +94,11 @@ export default function Dashboard() {
           const b = await getPipelineBusy()
           busy = !!b?.busy
         } catch {
-          /* ignore — may be a different worker than the one holding the lock */
+          /* transient — try again next tick, don't tear down the watch */
+          return
         }
 
-        let hasRunning = false
-        try {
-          const runsPayload = await getPipelineRuns({ page: 1, pageSize: 20 })
-          hasRunning = (runsPayload?.items ?? []).some((r) => r.status === 'running')
-        } catch {
-          /* transient network error — don't kill the watch, try again next tick */
-        }
-
-        setRefreshKey((k) => k + 1)
-
-        const active = busy || hasRunning
-
-        if (active) {
+        if (busy) {
           pipelineEverSawActiveRef.current = true
           pipelineIdleStreakRef.current = 0
           return
@@ -127,6 +139,7 @@ export default function Dashboard() {
           /* keep default */
         }
         setToast({ type: toastType, text })
+        setRefreshKey((k) => k + 1)
       } catch {
         /* Never tear down the watch on unexpected errors — leave Stop available. */
       }

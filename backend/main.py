@@ -286,15 +286,42 @@ def _manual_pipeline_thread_target() -> None:
 
 
 @app.get("/pipeline-status")
-def pipeline_status():
-    """Whether a sync is currently holding the pipeline lock (ingest or backfill)."""
-    return {"busy": pipeline_is_busy()}
+def pipeline_status(db: Session = Depends(get_db)):
+    """Busy = in-process lock held OR any DB row still ``running`` (multi-worker safe)."""
+    has_running_row = (
+        db.scalar(
+            select(func.count())
+            .select_from(PipelineRun)
+            .where(PipelineRun.status == "running")
+        )
+        or 0
+    )
+    in_process = pipeline_is_busy()
+    return {
+        "busy": bool(in_process or has_running_row > 0),
+        "in_process": bool(in_process),
+        "running_rows": int(has_running_row),
+    }
 
 
 @app.post("/cancel-pipeline")
-def cancel_pipeline_endpoint():
-    """Cooperative cancel: pipeline stops between papers / offset blocks."""
-    if not pipeline_is_busy():
+def cancel_pipeline_endpoint(db: Session = Depends(get_db)):
+    """Cooperative cancel: pipeline stops between papers / offset blocks.
+
+    Returns 202 if the in-process pipeline lock is held; returns 409 only when no
+    sync is visible in-process or in the DB so other workers' jobs don't appear
+    "stuck" to Grant if this request lands on a worker that didn't start the run.
+    """
+    in_process = pipeline_is_busy()
+    has_running_row = (
+        db.scalar(
+            select(func.count())
+            .select_from(PipelineRun)
+            .where(PipelineRun.status == "running")
+        )
+        or 0
+    )
+    if not in_process and not has_running_row:
         raise HTTPException(
             status_code=409,
             detail="No sync is running — nothing to cancel.",
@@ -305,6 +332,7 @@ def cancel_pipeline_endpoint():
         content={
             "status": "accepted",
             "message": "Stop requested. Ingest will finish the current paper (if any), then exit.",
+            "in_process": bool(in_process),
         },
     )
 

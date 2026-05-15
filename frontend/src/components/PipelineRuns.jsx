@@ -1,40 +1,79 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getPipelineRuns } from "../api";
 import { friendlyErrorMessage } from "../lib/apiErrors.js";
 
 const PAGE_SIZE = 10;
+const ACTIVE_POLL_MS = 2500;
+const IDLE_POLL_MS = 30000;
 
+/**
+ * Self-polling table. While the latest run is ``running`` we refresh every
+ * ACTIVE_POLL_MS; otherwise we slow down to IDLE_POLL_MS. The component never
+ * re-shows the initial "Loading runs…" spinner after the first successful
+ * fetch — background refreshes update rows in place so the table never
+ * disappears or flickers.
+ *
+ * ``refreshKey`` is optional: bumping it forces an immediate refetch (used by
+ * the dashboard right after Sync / Stop click), but is not required.
+ */
 export default function PipelineRuns({ refreshKey = 0 }) {
   const [page, setPage] = useState(1);
   const [payload, setPayload] = useState(null);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
+  const firstLoadDoneRef = useRef(false);
+  const timerRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      setErr(null);
-      // Only show the big "Loading runs…" spinner on the *initial* fetch.
-      // Background refreshes (refreshKey bump) keep the table visible, so it
-      // never flickers between "Loading runs…" and the rendered table while
-      // a sync is running.
-      if (!payload) setLoading(true);
+
+    const fetchOnce = async () => {
+      if (!firstLoadDoneRef.current) {
+        setLoading(true);
+      }
       try {
         const data = await getPipelineRuns({ page, pageSize: PAGE_SIZE });
-        if (!cancelled) setPayload(data);
+        if (cancelled) return null;
+        setErr(null);
+        setPayload(data);
+        firstLoadDoneRef.current = true;
+        return data;
       } catch (e) {
-        if (!cancelled) {
+        if (cancelled) return null;
+        if (!firstLoadDoneRef.current) {
           setErr(friendlyErrorMessage(e?.message || e));
         }
+        return null;
       } finally {
         if (!cancelled) setLoading(false);
       }
+    };
+
+    const schedule = (data) => {
+      if (cancelled) return;
+      const hasRunning = (data?.items ?? []).some((r) => r.status === "running");
+      const next = hasRunning ? ACTIVE_POLL_MS : IDLE_POLL_MS;
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(async () => {
+        const d = await fetchOnce();
+        schedule(d ?? payload);
+      }, next);
+    };
+
+    (async () => {
+      const data = await fetchOnce();
+      schedule(data);
     })();
+
     return () => {
       cancelled = true;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
     };
-    // We intentionally exclude `payload` — it is only read to decide whether
-    // to show the initial spinner, and including it would re-run on every fetch.
+    // We intentionally exclude `payload` — we only use it as a fallback inside
+    // the scheduler; including it would cancel + restart polling on every fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, refreshKey]);
 
@@ -63,12 +102,12 @@ export default function PipelineRuns({ refreshKey = 0 }) {
         deploy (then it is marked failed). Dashboard totals always come
         from the papers table.
       </p>
-      {err && (
+      {err && !firstLoadDoneRef.current && (
         <p className="mt-3 text-sm text-red-700" role="alert">
           {err}
         </p>
       )}
-      {loading && !err && (
+      {loading && !firstLoadDoneRef.current && (
         <p className="mt-4 flex items-center gap-2 text-sm text-slate-500">
           <span
             className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-sky-500"
@@ -78,13 +117,13 @@ export default function PipelineRuns({ refreshKey = 0 }) {
         </p>
       )}
 
-      {!loading && !err && total === 0 && (
+      {firstLoadDoneRef.current && total === 0 && (
         <p className="mt-4 text-sm text-slate-500">
           No runs recorded yet. Run &quot;Sync arXiv&quot; once.
         </p>
       )}
 
-      {!loading && !err && items.length > 0 && (
+      {firstLoadDoneRef.current && items.length > 0 && (
         <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
           <table className="w-full min-w-[720px] border-collapse text-left text-sm">
             <thead>
@@ -167,9 +206,7 @@ export default function PipelineRuns({ refreshKey = 0 }) {
                         : ""
                     }
                   >
-                    <span className="tabular-nums">
-                      {formatDurationMs(r.duration_ms)}
-                    </span>
+                    {formatDurationMs(r.duration_ms)}
                   </td>
                   <td
                     className={`max-w-[220px] truncate px-3 py-2.5 text-xs ${
