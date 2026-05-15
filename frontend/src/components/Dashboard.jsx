@@ -22,21 +22,30 @@ export default function Dashboard() {
   /** Consecutive polls with no active signal after we had seen active (debounce end detection). */
   const pipelineIdleStreakRef = useRef(0)
   const pipelineWatchStartedAtRef = useRef(0)
+  /** Bump during sync so stat cards refresh every few watch ticks (PM: auto-update totals). */
+  const pipelineStatsTickRef = useRef(0)
+
+  async function refreshDashboardStats({ showErrorToast = false } = {}) {
+    try {
+      const s = await getStats()
+      setStats(s)
+    } catch (e) {
+      if (showErrorToast) {
+        setToast({ type: 'err', text: friendlyErrorMessage(e?.message || e) })
+      }
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      try {
-        const s = await getStats()
-        if (!cancelled) setStats(s)
-      } catch (e) {
-        if (!cancelled)
-          setToast({ type: 'err', text: friendlyErrorMessage(e?.message || e) })
-      }
+      if (cancelled) return
+      await refreshDashboardStats({ showErrorToast: true })
     })()
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey])
 
   // If the user refreshes mid-sync, pick up the running pipeline and show Stop.
@@ -83,9 +92,12 @@ export default function Dashboard() {
     stopPipelineSyncWatch()
     pipelineEverSawActiveRef.current = false
     pipelineIdleStreakRef.current = 0
+    pipelineStatsTickRef.current = 0
     pipelineWatchStartedAtRef.current = Date.now()
 
     const pollMs = 2500
+    /** Refresh stat cards every N watch ticks while sync is active (~7.5s). */
+    const statsRefreshEveryTicks = 3
 
     const tick = async () => {
       try {
@@ -101,6 +113,10 @@ export default function Dashboard() {
         if (busy) {
           pipelineEverSawActiveRef.current = true
           pipelineIdleStreakRef.current = 0
+          pipelineStatsTickRef.current += 1
+          if (pipelineStatsTickRef.current % statsRefreshEveryTicks === 0) {
+            void refreshDashboardStats()
+          }
           return
         }
 
@@ -139,6 +155,8 @@ export default function Dashboard() {
           /* keep default */
         }
         setToast({ type: toastType, text })
+        // PM #2: refresh top stat cards immediately when sync ends (no page reload).
+        await refreshDashboardStats()
         setRefreshKey((k) => k + 1)
       } catch {
         /* Never tear down the watch on unexpected errors — leave Stop available. */
@@ -176,11 +194,12 @@ export default function Dashboard() {
         setCancelRequested(false)
         setSyncInProgress(true)
         startPipelineSyncWatch()
+        void refreshDashboardStats()
         setToast({
           type: 'ok',
           text:
             res.message ||
-            'Sync started on the server. Use Stop sync to cancel; stats refresh while the job runs.',
+            'Sync started on the server. Use Stop sync to cancel; stat cards update while the job runs.',
         })
         setRefreshKey((k) => k + 1)
         return
