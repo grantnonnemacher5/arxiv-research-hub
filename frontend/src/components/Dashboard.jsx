@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getStats, runPipeline } from '../api'
+import { cancelPipeline, getPipelineBusy, getPipelineRuns, getStats, runPipeline } from '../api'
 import { friendlyErrorMessage } from '../lib/apiErrors.js'
 import PaperList from './PaperList.jsx'
 import PaperSearch from './PaperSearch.jsx'
@@ -12,6 +12,8 @@ export default function Dashboard() {
   const [toast, setToast] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [pipelineLoading, setPipelineLoading] = useState(false)
+  const [syncInProgress, setSyncInProgress] = useState(false)
+  const [cancelLoading, setCancelLoading] = useState(false)
   const pipelinePollRef = useRef(null)
 
   useEffect(() => {
@@ -39,6 +41,79 @@ export default function Dashboard() {
     }
   }, [])
 
+  async function waitForPipelineBusy({ maxMs = 5000, stepMs = 200 } = {}) {
+    const t0 = Date.now()
+    while (Date.now() - t0 < maxMs) {
+      try {
+        const { busy } = await getPipelineBusy()
+        if (busy) return true
+      } catch {
+        /* next attempt */
+      }
+      await new Promise((r) => setTimeout(r, stepMs))
+    }
+    return false
+  }
+
+  function startPipelineBusyPoll() {
+    if (pipelinePollRef.current) {
+      clearInterval(pipelinePollRef.current)
+      pipelinePollRef.current = null
+    }
+    pipelinePollRef.current = setInterval(async () => {
+      try {
+        const { busy } = await getPipelineBusy()
+        setRefreshKey((k) => k + 1)
+        if (!busy) {
+          if (pipelinePollRef.current) {
+            clearInterval(pipelinePollRef.current)
+            pipelinePollRef.current = null
+          }
+          setSyncInProgress(false)
+          let toastType = 'ok'
+          let text = 'Sync finished — stats and runs updated.'
+          try {
+            const data = await getPipelineRuns({ page: 1, pageSize: 1 })
+            const st = data?.items?.[0]?.status
+            if (st === 'cancelled') {
+              text =
+                'Sync cancelled. Anything already saved stays in your library — see Pipeline runs.'
+            } else if (st === 'failed') {
+              toastType = 'err'
+              text = 'Sync ended with an error — see Pipeline runs for details.'
+            }
+          } catch {
+            /* keep default */
+          }
+          setToast({ type: toastType, text })
+        }
+      } catch (e) {
+        if (pipelinePollRef.current) {
+          clearInterval(pipelinePollRef.current)
+          pipelinePollRef.current = null
+        }
+        setSyncInProgress(false)
+        setToast({ type: 'err', text: friendlyErrorMessage(e?.message || e) })
+      }
+    }, 2500)
+  }
+
+  async function handleCancelPipeline() {
+    setCancelLoading(true)
+    setToast(null)
+    try {
+      await cancelPipeline()
+      setToast({
+        type: 'ok',
+        text: 'Stop requested — ingest stops after the current paper (if any).',
+      })
+    } catch (e) {
+      setToast({ type: 'err', text: friendlyErrorMessage(e?.message || e) })
+    } finally {
+      setCancelLoading(false)
+    }
+  }
+
   async function handlePipeline() {
     setPipelineLoading(true)
     setToast(null)
@@ -49,20 +124,25 @@ export default function Dashboard() {
           clearInterval(pipelinePollRef.current)
           pipelinePollRef.current = null
         }
-        let ticks = 0
-        pipelinePollRef.current = setInterval(() => {
-          ticks += 1
+        setSyncInProgress(true)
+        const sawBusy = await waitForPipelineBusy()
+        if (!sawBusy) {
+          setSyncInProgress(false)
+          setToast({
+            type: 'ok',
+            text:
+              res.message ||
+              'Sync may have finished immediately or failed to start — check Pipeline runs.',
+          })
           setRefreshKey((k) => k + 1)
-          if (ticks >= 18) {
-            clearInterval(pipelinePollRef.current)
-            pipelinePollRef.current = null
-          }
-        }, 10000)
+          return
+        }
+        startPipelineBusyPoll()
         setToast({
           type: 'ok',
           text:
             res.message ||
-            'Sync started on the server. Stats and Pipeline runs refresh every 10s for up to 3 minutes.',
+            'Sync started on the server. Use Stop sync to cancel; stats refresh while the job runs.',
         })
         setRefreshKey((k) => k + 1)
         return
@@ -97,17 +177,32 @@ export default function Dashboard() {
             Sync papers, review themes, export HTML reports for a chosen window.
           </p>
         </div>
-        <button
-          type="button"
-          disabled={pipelineLoading}
-          onClick={handlePipeline}
-          className="inline-flex h-11 shrink-0 items-center justify-center gap-2 self-start rounded-lg bg-sky-500 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:opacity-50 sm:self-auto"
-        >
-          {pipelineLoading ? (
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+        <div className="flex shrink-0 flex-col gap-2 self-start sm:flex-row sm:self-auto">
+          <button
+            type="button"
+            disabled={pipelineLoading || syncInProgress}
+            onClick={handlePipeline}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-sky-500 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:opacity-50"
+          >
+            {pipelineLoading ? (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            ) : null}
+            {pipelineLoading ? 'Starting…' : syncInProgress ? 'Sync running' : 'Sync arXiv'}
+          </button>
+          {syncInProgress ? (
+            <button
+              type="button"
+              disabled={cancelLoading}
+              onClick={handleCancelPipeline}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              {cancelLoading ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" />
+              ) : null}
+              {cancelLoading ? 'Stopping…' : 'Stop sync'}
+            </button>
           ) : null}
-          {pipelineLoading ? 'Syncing…' : 'Sync arXiv'}
-        </button>
+        </div>
       </header>
 
       {toast && (

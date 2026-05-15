@@ -51,8 +51,10 @@ export default function PipelineRuns() {
         that arXiv id was already in your library. Completed + 0 saved usually
         means the fetched batch was all duplicates, not a failed sync.{" "}
         <strong className="font-medium text-slate-600">Running</strong> updates
-        saved/skipped in batches while the job is active; if the server crashes first, that row may
-        stay running until the next deploy (then it is marked failed). Dashboard totals always come
+        saved/skipped in batches while the job is active.{" "}
+        <strong className="font-medium text-slate-600">Stopped</strong> means you cancelled the sync
+        from the dashboard; if the server crashes first, the row may stay running until the next
+        deploy (then it is marked failed). Dashboard totals always come
         from the papers table.
       </p>
       {err && (
@@ -134,10 +136,12 @@ export default function PipelineRuns() {
                           ? "rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900"
                           : r.status === "running"
                             ? "rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-950"
-                            : "rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-900"
+                            : r.status === "cancelled"
+                              ? "rounded-md bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-800"
+                              : "rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-900"
                       }
                     >
-                      {r.status}
+                      {pipelineStatusLabel(r.status)}
                     </span>
                   </td>
                   <td className="border-r border-slate-200 px-3 py-2.5 text-right tabular-nums text-slate-800">
@@ -163,7 +167,11 @@ export default function PipelineRuns() {
                   </td>
                   <td
                     className={`max-w-[220px] truncate px-3 py-2.5 text-xs ${
-                      r.status === "failed" ? "text-red-800" : "text-slate-600"
+                      r.status === "failed"
+                        ? "text-red-800"
+                        : r.status === "cancelled"
+                          ? "text-slate-700"
+                          : "text-slate-600"
                     }`}
                     title={r.error || ""}
                   >
@@ -210,6 +218,21 @@ export default function PipelineRuns() {
   );
 }
 
+/** DB uses `cancelled`; UI shows “Stopped” for Grant-facing copy. */
+function pipelineStatusLabel(status) {
+  switch (status) {
+    case "completed":
+      return "Completed";
+    case "running":
+      return "Running";
+    case "failed":
+      return "Failed";
+    case "cancelled":
+      return "Stopped";
+    default:
+      return status || "—";
+  }
+}
 /** US Central wall clock: America/Chicago (CST in winter, CDT in summer). */
 function formatFinishedChicago(iso) {
   try {

@@ -18,7 +18,12 @@ from sqlalchemy.orm import Session
 from classifier import BUCKET_DESCRIPTIONS
 from config import ARXIV_MAX_RESULTS, CORS_ORIGINS, INGEST_FETCH_PDF, REPORTS_DIR
 from database import Paper, PipelineRun, Report, SessionLocal, get_db, init_db
-from pipeline import close_stale_running_pipeline_runs, pipeline_is_busy, run_full_pipeline
+from pipeline import (
+    close_stale_running_pipeline_runs,
+    pipeline_is_busy,
+    request_pipeline_cancel,
+    run_full_pipeline,
+)
 from report_generator import ALLOWED_PERIODS, generate_report
 from scheduler import shutdown_scheduler, start_scheduler
 from search_hybrid import run_search
@@ -271,6 +276,30 @@ def _manual_pipeline_thread_target() -> None:
         run_full_pipeline(max_results_per_query=ARXIV_MAX_RESULTS, trigger="manual")
     except Exception:
         logger.exception("Manual pipeline background thread failed")
+
+
+@app.get("/pipeline-status")
+def pipeline_status():
+    """Whether a sync is currently holding the pipeline lock (ingest or backfill)."""
+    return {"busy": pipeline_is_busy()}
+
+
+@app.post("/cancel-pipeline")
+def cancel_pipeline_endpoint():
+    """Cooperative cancel: pipeline stops between papers / offset blocks."""
+    if not pipeline_is_busy():
+        raise HTTPException(
+            status_code=409,
+            detail="No sync is running — nothing to cancel.",
+        )
+    request_pipeline_cancel()
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+            "message": "Stop requested. Ingest will finish the current paper (if any), then exit.",
+        },
+    )
 
 
 @app.post("/run-pipeline")

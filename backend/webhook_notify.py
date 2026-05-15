@@ -30,7 +30,12 @@ def send_pipeline_webhook(
     if not url:
         return
     duration_ms = max(0, int((time.monotonic() - started_monotonic) * 1000))
-    event = "pipeline.completed" if status == "completed" else "pipeline.failed"
+    if status == "completed":
+        event = "pipeline.completed"
+    elif status == "cancelled":
+        event = "pipeline.cancelled"
+    else:
+        event = "pipeline.failed"
     payload = {
         "event": event,
         "status": status,

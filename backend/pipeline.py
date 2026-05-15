@@ -35,11 +35,25 @@ from webhook_notify import send_pipeline_webhook
 logger = logging.getLogger(__name__)
 
 _pipeline_lock = threading.Lock()
+_pipeline_cancel = threading.Event()
 
 
 def pipeline_is_busy() -> bool:
     """True while any thread is inside ``run_full_pipeline``."""
     return _pipeline_lock.locked()
+
+
+def pipeline_cancel_requested() -> bool:
+    return _pipeline_cancel.is_set()
+
+
+def request_pipeline_cancel() -> None:
+    """Ask the in-process pipeline to stop between papers / offset blocks (cooperative)."""
+    _pipeline_cancel.set()
+
+
+def clear_pipeline_cancel() -> None:
+    _pipeline_cancel.clear()
 
 
 def _create_pipeline_run_started(
@@ -73,7 +87,7 @@ def _create_pipeline_run_started(
 def _finalize_pipeline_run(
     run_id: int | None,
     *,
-    status: Literal["completed", "failed"],
+    status: Literal["completed", "failed", "cancelled"],
     duration_ms: int,
     saved: int,
     skipped: int,
@@ -233,6 +247,7 @@ def _run_full_pipeline_impl(
     trigger: Literal["manual", "scheduled"] = "manual",
 ) -> dict[str, Any]:
     init_db()
+    clear_pipeline_cancel()
     if not INGEST_FETCH_PDF:
         logger.info("INGEST_FETCH_PDF=false — skipping PDF downloads during ingest (abstract/metadata only)")
     started_at = datetime.utcnow()
@@ -252,7 +267,12 @@ def _run_full_pipeline_impl(
     try:
         all_dup_streak = 0
         save_cap_reached = False
+        cancelled_early = False
         for start_block in range(ARXIV_SYNC_MAX_OFFSET_BLOCKS):
+            if pipeline_cancel_requested():
+                cancelled_early = True
+                logger.info("Pipeline: cancel requested before offset block %s", start_block)
+                break
             if start_block > 0:
                 time.sleep(3.1)
             papers = fetch_all_bucket_queries(
@@ -269,6 +289,10 @@ def _run_full_pipeline_impl(
                 break
             block_new = 0
             for p in papers:
+                if pipeline_cancel_requested():
+                    cancelled_early = True
+                    logger.info("Pipeline: cancel requested mid-ingest (after %s saves)", saved)
+                    break
                 if is_duplicate(p["arxiv_id"], db):
                     skipped += 1
                     bump_progress_checkpoint()
@@ -322,6 +346,8 @@ def _run_full_pipeline_impl(
                         skipped,
                     )
                     break
+            if cancelled_early:
+                break
             if save_cap_reached:
                 break
             if block_new > 0:
@@ -337,8 +363,27 @@ def _run_full_pipeline_impl(
 
         if run_id:
             _update_pipeline_run_progress(run_id, saved, skipped, t0)
+        if cancelled_early:
+            stats: dict[str, Any] = {
+                "saved": saved,
+                "skipped_duplicates": skipped,
+                "backfilled": 0,
+            }
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            err = "Cancelled by user."
+            send_pipeline_webhook("cancelled", stats, err, t0)
+            _finalize_pipeline_run(
+                run_id,
+                status="cancelled",
+                duration_ms=duration_ms,
+                saved=saved,
+                skipped=skipped,
+                backfilled=0,
+                error=err,
+            )
+            return stats
         backfilled = backfill_classifications(db)
-        stats: dict[str, Any] = {
+        stats = {
             "saved": saved,
             "skipped_duplicates": skipped,
             "backfilled": backfilled,

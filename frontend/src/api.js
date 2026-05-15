@@ -44,6 +44,11 @@ export async function getPipelineRuns({ page = 1, pageSize = 10 } = {}) {
   return parseResponse(res);
 }
 
+export async function getPipelineBusy() {
+  const res = await fetch(apiUrl("/pipeline-status"));
+  return parseResponse(res);
+}
+
 export async function searchCorpus({ q, mode = "hybrid", bucket, limit = 15, rerank = false }) {
   const params = new URLSearchParams({ q, mode, limit: String(limit) });
   if (bucket) params.set("bucket", bucket);
@@ -77,6 +82,15 @@ export async function listReports() {
 
 export async function runPipeline() {
   const res = await fetch(apiUrl("/run-pipeline"), { method: "POST" });
+  if (res.status === 409) {
+    const text = await res.text();
+    throw new Error(friendlyErrorMessage(text || res.statusText));
+  }
+  return parseResponse(res);
+}
+
+export async function cancelPipeline() {
+  const res = await fetch(apiUrl("/cancel-pipeline"), { method: "POST" });
   if (res.status === 409) {
     const text = await res.text();
     throw new Error(friendlyErrorMessage(text || res.statusText));
