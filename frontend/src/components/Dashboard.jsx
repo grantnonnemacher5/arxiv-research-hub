@@ -63,70 +63,70 @@ export default function Dashboard() {
     const pollMs = 1600
 
     const tick = async () => {
-      let busy = false
       try {
-        const b = await getPipelineBusy()
-        busy = !!b?.busy
+        let busy = false
+        try {
+          const b = await getPipelineBusy()
+          busy = !!b?.busy
+        } catch {
+          /* ignore — may be a different worker than the one holding the lock */
+        }
+
+        let hasRunning = false
+        try {
+          const runsPayload = await getPipelineRuns({ page: 1, pageSize: 20 })
+          hasRunning = (runsPayload?.items ?? []).some((r) => r.status === 'running')
+        } catch {
+          /* transient network error — don't kill the watch, try again next tick */
+        }
+
+        setRefreshKey((k) => k + 1)
+
+        const active = busy || hasRunning
+
+        if (active) {
+          pipelineEverSawActiveRef.current = true
+          pipelineIdleStreakRef.current = 0
+          return
+        }
+
+        if (!pipelineEverSawActiveRef.current) {
+          const waitedMs = Date.now() - pipelineWatchStartedAtRef.current
+          if (waitedMs > 120_000) {
+            stopPipelineSyncWatch()
+            setSyncInProgress(false)
+            setToast({
+              type: 'ok',
+              text: 'Could not confirm the sync on the server — check Pipeline runs.',
+            })
+          }
+          return
+        }
+
+        pipelineIdleStreakRef.current += 1
+        if (pipelineIdleStreakRef.current < 2) return
+
+        stopPipelineSyncWatch()
+        setSyncInProgress(false)
+        let toastType = 'ok'
+        let text = 'Sync finished — stats and runs updated.'
+        try {
+          const data = await getPipelineRuns({ page: 1, pageSize: 1 })
+          const st = data?.items?.[0]?.status
+          if (st === 'cancelled') {
+            text =
+              'Sync cancelled. Anything already saved stays in your library — see Pipeline runs.'
+          } else if (st === 'failed') {
+            toastType = 'err'
+            text = 'Sync ended with an error — see Pipeline runs for details.'
+          }
+        } catch {
+          /* keep default */
+        }
+        setToast({ type: toastType, text })
       } catch {
-        /* ignore — may be a different worker than the one holding the lock */
+        /* Never tear down the watch on unexpected errors — leave Stop available. */
       }
-
-      try {
-        runsPayload = await getPipelineRuns({ page: 1, pageSize: 20 })
-        hasRunning = (runsPayload?.items ?? []).some((r) => r.status === 'running')
-      } catch (e) {
-        if (pipelinePollRef.current) {
-          stopPipelineSyncWatch()
-          setSyncInProgress(false)
-          setToast({ type: 'err', text: friendlyErrorMessage(e?.message || e) })
-        }
-        return
-      }
-
-      setRefreshKey((k) => k + 1)
-
-      const active = busy || hasRunning
-
-      if (active) {
-        pipelineEverSawActiveRef.current = true
-        pipelineIdleStreakRef.current = 0
-        return
-      }
-
-      if (!pipelineEverSawActiveRef.current) {
-        const waitedMs = Date.now() - pipelineWatchStartedAtRef.current
-        if (waitedMs > 120_000) {
-          stopPipelineSyncWatch()
-          setSyncInProgress(false)
-          setToast({
-            type: 'ok',
-            text: 'Could not confirm the sync on the server — check Pipeline runs.',
-          })
-        }
-        return
-      }
-
-      pipelineIdleStreakRef.current += 1
-      if (pipelineIdleStreakRef.current < 2) return
-
-      stopPipelineSyncWatch()
-      setSyncInProgress(false)
-      let toastType = 'ok'
-      let text = 'Sync finished — stats and runs updated.'
-      try {
-        const data = await getPipelineRuns({ page: 1, pageSize: 1 })
-        const st = data?.items?.[0]?.status
-        if (st === 'cancelled') {
-          text =
-            'Sync cancelled. Anything already saved stays in your library — see Pipeline runs.'
-        } else if (st === 'failed') {
-          toastType = 'err'
-          text = 'Sync ended with an error — see Pipeline runs for details.'
-        }
-      } catch {
-        /* keep default */
-      }
-      setToast({ type: toastType, text })
     }
 
     void tick()
