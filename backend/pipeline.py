@@ -38,6 +38,15 @@ _pipeline_lock = threading.Lock()
 _pipeline_cancel = threading.Event()
 
 
+def _interruptible_sleep(seconds: float) -> None:
+    """Sleep up to ``seconds`` but wake immediately when cancel is requested."""
+    if seconds <= 0:
+        return
+    # Event.wait returns True if the event got set during the wait; we ignore
+    # the return value since callers already inspect ``pipeline_cancel_requested``.
+    _pipeline_cancel.wait(timeout=seconds)
+
+
 def pipeline_is_busy() -> bool:
     """True while any thread is inside ``run_full_pipeline``."""
     return _pipeline_lock.locked()
@@ -54,6 +63,17 @@ def request_pipeline_cancel() -> None:
 
 def clear_pipeline_cancel() -> None:
     _pipeline_cancel.clear()
+
+
+def create_pipeline_run_started(
+    trigger: Literal["manual", "scheduled"],
+    started_at: datetime | None = None,
+) -> int | None:
+    """Insert a ``running`` row up-front. Public wrapper so the HTTP handler can
+    pre-create the row before launching the worker thread, ensuring the UI
+    shows the new run on its first poll instead of after a thread-start delay.
+    """
+    return _create_pipeline_run_started(trigger, started_at or datetime.utcnow())
 
 
 def _create_pipeline_run_started(
@@ -186,6 +206,9 @@ def backfill_classifications(db: Session) -> int:
 
     Uses keyset batches (ordered by id) so we never load the full table and we
     always advance past a batch even when some rows have no classifiable text.
+
+    Honours ``pipeline_cancel_requested()`` between batches and between rows so
+    Stop sync takes effect quickly even when backfill is the active phase.
     """
     if OPENAI_API_KEY:
         filter_cond = or_(Paper.embedding.is_(None), Paper.buckets == "")
@@ -196,6 +219,12 @@ def backfill_classifications(db: Session) -> int:
     batch_size = BACKFILL_CLASSIFICATION_BATCH_SIZE
     cursor_id = 0
     while True:
+        if pipeline_cancel_requested():
+            logger.info(
+                "Backfill: cancel requested before next batch — exiting (updated=%s)",
+                updated,
+            )
+            break
         rows = list(
             db.scalars(
                 select(Paper)
@@ -208,7 +237,15 @@ def backfill_classifications(db: Session) -> int:
             break
         cursor_id = rows[-1].id
         batch_updates = 0
+        cancelled_in_batch = False
         for row in rows:
+            if pipeline_cancel_requested():
+                logger.info(
+                    "Backfill: cancel requested mid-batch — exiting (updated=%s)",
+                    updated,
+                )
+                cancelled_in_batch = True
+                break
             text = classification_input_text(row.full_text, row.abstract)
             if not text:
                 continue
@@ -224,6 +261,8 @@ def backfill_classifications(db: Session) -> int:
             db.commit()
         # Release ORM identity map between batches (important on low-RAM hosts).
         db.expunge_all()
+        if cancelled_in_batch:
+            break
     logger.info("Backfill classification updated %s rows", updated)
     return updated
 
@@ -231,20 +270,26 @@ def backfill_classifications(db: Session) -> int:
 def run_full_pipeline(
     max_results_per_query: int | None = None,
     trigger: Literal["manual", "scheduled"] = "manual",
+    run_id: int | None = None,
 ) -> dict[str, Any]:
     """
     1) Fetch arXiv 2) dedupe 3) PDF text 4) classify 5) save.
     Then backfill classification for older rows missing labels.
     On completion or failure, POST to WEBHOOK_URL when configured.
     Records a PipelineRun row for ops metrics.
+
+    ``run_id`` lets the HTTP handler pre-create the ``running`` row synchronously
+    so the dashboard sees it on the next poll. When None, a row is created here
+    (still the path used by the scheduler).
     """
     with _pipeline_lock:
-        return _run_full_pipeline_impl(max_results_per_query, trigger)
+        return _run_full_pipeline_impl(max_results_per_query, trigger, run_id)
 
 
 def _run_full_pipeline_impl(
     max_results_per_query: int | None = None,
     trigger: Literal["manual", "scheduled"] = "manual",
+    run_id: int | None = None,
 ) -> dict[str, Any]:
     init_db()
     clear_pipeline_cancel()
@@ -252,7 +297,8 @@ def _run_full_pipeline_impl(
         logger.info("INGEST_FETCH_PDF=false — skipping PDF downloads during ingest (abstract/metadata only)")
     started_at = datetime.utcnow()
     t0 = time.monotonic()
-    run_id = _create_pipeline_run_started(trigger, started_at)
+    if run_id is None:
+        run_id = _create_pipeline_run_started(trigger, started_at)
     db = SessionLocal()
     saved = 0
     skipped = 0
@@ -274,11 +320,21 @@ def _run_full_pipeline_impl(
                 logger.info("Pipeline: cancel requested before offset block %s", start_block)
                 break
             if start_block > 0:
-                time.sleep(3.1)
+                _interruptible_sleep(3.1)
+                if pipeline_cancel_requested():
+                    cancelled_early = True
+                    logger.info("Pipeline: cancel requested during inter-block sleep")
+                    break
             papers = fetch_all_bucket_queries(
                 max_results_per_query=max_results_per_query,
                 start_block=start_block,
+                cancel_check=pipeline_cancel_requested,
+                interruptible_sleep=_interruptible_sleep,
             )
+            if pipeline_cancel_requested():
+                cancelled_early = True
+                logger.info("Pipeline: cancel requested after arXiv fetch")
+                break
             logger.info(
                 "Pipeline arXiv offset block %s: %s candidate papers",
                 start_block,
@@ -397,6 +453,28 @@ def _run_full_pipeline_impl(
             )
             return stats
         backfilled = backfill_classifications(db)
+        # backfill_classifications honours pipeline_cancel_requested() and exits
+        # early when set. If the user pressed Stop during backfill, finalize the
+        # run as cancelled so the UI reflects the user's intent.
+        if pipeline_cancel_requested():
+            stats = {
+                "saved": saved,
+                "skipped_duplicates": skipped,
+                "backfilled": backfilled,
+            }
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            err = "Cancelled by user during backfill."
+            send_pipeline_webhook("cancelled", stats, err, t0)
+            _finalize_pipeline_run(
+                run_id,
+                status="cancelled",
+                duration_ms=duration_ms,
+                saved=saved,
+                skipped=skipped,
+                backfilled=backfilled,
+                error=err,
+            )
+            return stats
         stats = {
             "saved": saved,
             "skipped_duplicates": skipped,

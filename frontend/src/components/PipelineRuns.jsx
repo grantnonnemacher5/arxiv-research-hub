@@ -7,16 +7,24 @@ const ACTIVE_POLL_MS = 2500;
 const IDLE_POLL_MS = 30000;
 
 /**
- * Self-polling table. While the latest run is ``running`` we refresh every
- * ACTIVE_POLL_MS; otherwise we slow down to IDLE_POLL_MS. The component never
- * re-shows the initial "Loading runs…" spinner after the first successful
- * fetch — background refreshes update rows in place so the table never
- * disappears or flickers.
+ * Self-polling table. While the latest run is ``running`` *or* the parent says
+ * a sync is in progress (so we keep polling fast right after Sync is pressed
+ * before the row exists yet) we refresh every ACTIVE_POLL_MS; otherwise we
+ * slow down to IDLE_POLL_MS. The component never re-shows the initial
+ * "Loading runs…" spinner after the first successful fetch — background
+ * refreshes update rows in place so the table never disappears or flickers.
  *
  * ``refreshKey`` is optional: bumping it forces an immediate refetch (used by
  * the dashboard right after Sync / Stop click), but is not required.
+ * ``activePolling`` lets the dashboard say "I just kicked off a run, please
+ * keep polling fast even if no running row is visible yet".
+ * ``cancelRequested`` paints the running row's status badge as "Stopping…".
  */
-export default function PipelineRuns({ refreshKey = 0 }) {
+export default function PipelineRuns({
+  refreshKey = 0,
+  activePolling = false,
+  cancelRequested = false,
+}) {
   const [page, setPage] = useState(1);
   const [payload, setPayload] = useState(null);
   const [err, setErr] = useState(null);
@@ -52,7 +60,7 @@ export default function PipelineRuns({ refreshKey = 0 }) {
     const schedule = (data) => {
       if (cancelled) return;
       const hasRunning = (data?.items ?? []).some((r) => r.status === "running");
-      const next = hasRunning ? ACTIVE_POLL_MS : IDLE_POLL_MS;
+      const next = hasRunning || activePolling ? ACTIVE_POLL_MS : IDLE_POLL_MS;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(async () => {
         const d = await fetchOnce();
@@ -75,7 +83,7 @@ export default function PipelineRuns({ refreshKey = 0 }) {
     // We intentionally exclude `payload` — we only use it as a fallback inside
     // the scheduler; including it would cancel + restart polling on every fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, refreshKey]);
+  }, [page, refreshKey, activePolling]);
 
   const total = payload?.total ?? 0;
   const items = payload?.items ?? [];
@@ -186,7 +194,9 @@ export default function PipelineRuns({ refreshKey = 0 }) {
                               : "rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-900"
                       }
                     >
-                      {pipelineStatusLabel(r.status)}
+                      {r.status === "running" && cancelRequested
+                        ? "Stopping…"
+                        : pipelineStatusLabel(r.status)}
                     </span>
                   </td>
                   <td className="border-r border-slate-200 px-3 py-2.5 text-right tabular-nums text-slate-800">

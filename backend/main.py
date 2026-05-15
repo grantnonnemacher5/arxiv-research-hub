@@ -20,6 +20,7 @@ from config import ARXIV_MAX_RESULTS, CORS_ORIGINS, INGEST_FETCH_PDF, REPORTS_DI
 from database import Paper, PipelineRun, Report, SessionLocal, get_db, init_db
 from pipeline import (
     close_stale_running_pipeline_runs,
+    create_pipeline_run_started,
     pipeline_is_busy,
     request_pipeline_cancel,
     run_full_pipeline,
@@ -278,9 +279,13 @@ def serve_report(filename: str, db: Session = Depends(get_db)):
     return FileResponse(path, media_type="text/html; charset=utf-8")
 
 
-def _manual_pipeline_thread_target() -> None:
+def _manual_pipeline_thread_target(run_id: int | None) -> None:
     try:
-        run_full_pipeline(max_results_per_query=ARXIV_MAX_RESULTS, trigger="manual")
+        run_full_pipeline(
+            max_results_per_query=ARXIV_MAX_RESULTS,
+            trigger="manual",
+            run_id=run_id,
+        )
     except Exception:
         logger.exception("Manual pipeline background thread failed")
 
@@ -347,8 +352,13 @@ def run_pipeline_endpoint():
                 "or dashboard stats."
             ),
         )
+    # Pre-create the running row SYNCHRONOUSLY so the dashboard sees it on its
+    # very next poll instead of after the worker thread's startup delay
+    # (init_db, classifier warm-up, etc).
+    run_id = create_pipeline_run_started("manual")
     threading.Thread(
         target=_manual_pipeline_thread_target,
+        args=(run_id,),
         name="manual-arxiv-pipeline",
         daemon=False,
     ).start()
@@ -356,9 +366,10 @@ def run_pipeline_endpoint():
         status_code=202,
         content={
             "status": "accepted",
+            "run_id": run_id,
             "message": (
                 "Sync started on the server. It can take several minutes (arXiv rate limits). "
-                "Refresh Pipeline runs or stats for progress; you can leave this page."
+                "Use Stop sync to cancel; the dashboard refreshes while it runs."
             ),
         },
     )
