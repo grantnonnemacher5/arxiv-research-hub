@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
-from sqlalchemy import Date, cast, func, or_, select
+from sqlalchemy import Date, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from classifier import BUCKET_DESCRIPTIONS
@@ -112,13 +112,20 @@ def list_pipeline_runs(
     page_size: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
-    """Recent ingest pipeline executions for ops / failure visibility (paginated, newest first)."""
+    """Recent ingest pipeline executions for ops / failure visibility (paginated, newest first).
+
+    Rows with status ``running`` sort first so long jobs stay visible at the top even when
+    ``finished_at`` (set equal to ``started_at`` until completion) is older than newer completed runs.
+    """
     total = db.scalar(select(func.count()).select_from(PipelineRun)) or 0
     offset = (page - 1) * page_size
     rows = list(
         db.scalars(
             select(PipelineRun)
-            .order_by(PipelineRun.finished_at.desc())
+            .order_by(
+                case((PipelineRun.status == "running", 0), else_=1),
+                PipelineRun.finished_at.desc(),
+            )
             .offset(offset)
             .limit(page_size)
         ).all()

@@ -15,6 +15,11 @@ export default function Dashboard() {
   const [syncInProgress, setSyncInProgress] = useState(false)
   const [cancelLoading, setCancelLoading] = useState(false)
   const pipelinePollRef = useRef(null)
+  /** True once we have seen either in-memory busy or a DB `running` row (works across API workers). */
+  const pipelineEverSawActiveRef = useRef(false)
+  /** Consecutive polls with no active signal after we had seen active (debounce end detection). */
+  const pipelineIdleStreakRef = useRef(0)
+  const pipelineWatchStartedAtRef = useRef(0)
 
   useEffect(() => {
     let cancelled = false
@@ -34,68 +39,98 @@ export default function Dashboard() {
 
   useEffect(() => {
     return () => {
-      if (pipelinePollRef.current) {
-        clearInterval(pipelinePollRef.current)
-        pipelinePollRef.current = null
-      }
+      stopPipelineSyncWatch()
     }
   }, [])
 
-  async function waitForPipelineBusy({ maxMs = 5000, stepMs = 200 } = {}) {
-    const t0 = Date.now()
-    while (Date.now() - t0 < maxMs) {
-      try {
-        const { busy } = await getPipelineBusy()
-        if (busy) return true
-      } catch {
-        /* next attempt */
-      }
-      await new Promise((r) => setTimeout(r, stepMs))
-    }
-    return false
-  }
-
-  function startPipelineBusyPoll() {
+  function stopPipelineSyncWatch() {
     if (pipelinePollRef.current) {
       clearInterval(pipelinePollRef.current)
       pipelinePollRef.current = null
     }
-    pipelinePollRef.current = setInterval(async () => {
+  }
+
+  /**
+   * Keep Stop visible until the pipeline is clearly finished.
+   * Uses DB `running` rows — not only `GET /pipeline-status` — so multi-worker APIs still work.
+   */
+  function startPipelineSyncWatch() {
+    stopPipelineSyncWatch()
+    pipelineEverSawActiveRef.current = false
+    pipelineIdleStreakRef.current = 0
+    pipelineWatchStartedAtRef.current = Date.now()
+
+    const pollMs = 1600
+
+    const tick = async () => {
+      let busy = false
       try {
-        const { busy } = await getPipelineBusy()
-        setRefreshKey((k) => k + 1)
-        if (!busy) {
-          if (pipelinePollRef.current) {
-            clearInterval(pipelinePollRef.current)
-            pipelinePollRef.current = null
-          }
-          setSyncInProgress(false)
-          let toastType = 'ok'
-          let text = 'Sync finished — stats and runs updated.'
-          try {
-            const data = await getPipelineRuns({ page: 1, pageSize: 1 })
-            const st = data?.items?.[0]?.status
-            if (st === 'cancelled') {
-              text =
-                'Sync cancelled. Anything already saved stays in your library — see Pipeline runs.'
-            } else if (st === 'failed') {
-              toastType = 'err'
-              text = 'Sync ended with an error — see Pipeline runs for details.'
-            }
-          } catch {
-            /* keep default */
-          }
-          setToast({ type: toastType, text })
-        }
+        const b = await getPipelineBusy()
+        busy = !!b?.busy
+      } catch {
+        /* ignore — may be a different worker than the one holding the lock */
+      }
+
+      try {
+        runsPayload = await getPipelineRuns({ page: 1, pageSize: 20 })
+        hasRunning = (runsPayload?.items ?? []).some((r) => r.status === 'running')
       } catch (e) {
         if (pipelinePollRef.current) {
-          clearInterval(pipelinePollRef.current)
-          pipelinePollRef.current = null
+          stopPipelineSyncWatch()
+          setSyncInProgress(false)
+          setToast({ type: 'err', text: friendlyErrorMessage(e?.message || e) })
         }
-        setSyncInProgress(false)
-        setToast({ type: 'err', text: friendlyErrorMessage(e?.message || e) })
+        return
       }
-    }, 2500)
+
+      setRefreshKey((k) => k + 1)
+
+      const active = busy || hasRunning
+
+      if (active) {
+        pipelineEverSawActiveRef.current = true
+        pipelineIdleStreakRef.current = 0
+        return
+      }
+
+      if (!pipelineEverSawActiveRef.current) {
+        const waitedMs = Date.now() - pipelineWatchStartedAtRef.current
+        if (waitedMs > 120_000) {
+          stopPipelineSyncWatch()
+          setSyncInProgress(false)
+          setToast({
+            type: 'ok',
+            text: 'Could not confirm the sync on the server — check Pipeline runs.',
+          })
+        }
+        return
+      }
+
+      pipelineIdleStreakRef.current += 1
+      if (pipelineIdleStreakRef.current < 2) return
+
+      stopPipelineSyncWatch()
+      setSyncInProgress(false)
+      let toastType = 'ok'
+      let text = 'Sync finished — stats and runs updated.'
+      try {
+        const data = await getPipelineRuns({ page: 1, pageSize: 1 })
+        const st = data?.items?.[0]?.status
+        if (st === 'cancelled') {
+          text =
+            'Sync cancelled. Anything already saved stays in your library — see Pipeline runs.'
+        } else if (st === 'failed') {
+          toastType = 'err'
+          text = 'Sync ended with an error — see Pipeline runs for details.'
+        }
+      } catch {
+        /* keep default */
+      }
+      setToast({ type: toastType, text })
+    }
+
+    void tick()
+    pipelinePollRef.current = setInterval(tick, pollMs)
   }
 
   async function handleCancelPipeline() {
@@ -120,24 +155,9 @@ export default function Dashboard() {
     try {
       const res = await runPipeline()
       if (res.status === 'accepted') {
-        if (pipelinePollRef.current) {
-          clearInterval(pipelinePollRef.current)
-          pipelinePollRef.current = null
-        }
+        stopPipelineSyncWatch()
         setSyncInProgress(true)
-        const sawBusy = await waitForPipelineBusy()
-        if (!sawBusy) {
-          setSyncInProgress(false)
-          setToast({
-            type: 'ok',
-            text:
-              res.message ||
-              'Sync may have finished immediately or failed to start — check Pipeline runs.',
-          })
-          setRefreshKey((k) => k + 1)
-          return
-        }
-        startPipelineBusyPoll()
+        startPipelineSyncWatch()
         setToast({
           type: 'ok',
           text:
