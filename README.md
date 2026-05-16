@@ -10,7 +10,7 @@ pinned: false
 
 # arxiv-research-hub
 
-Source: [github.com/Yonas1219/arxiv-research-hub](https://github.com/Yonas1219/arxiv-research-hub)
+Source: [github.com/grantnonnemacher5/arxiv-research-hub](https://github.com/grantnonnemacher5/arxiv-research-hub)
 
 ## Setup
 
