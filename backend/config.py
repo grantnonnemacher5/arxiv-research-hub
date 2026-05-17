@@ -28,6 +28,11 @@ ARXIV_MAX_RESULTS = int(os.getenv("ARXIV_MAX_RESULTS", "50"))
 # Per category: pages at max_results each (start=0, then start=max_results, …). >1 reaches older
 # submissions when the first page is already fully ingested (common after initial backfill).
 ARXIV_PAGE_COUNT = max(1, int(os.getenv("ARXIV_PAGE_COUNT", "2")))
+# arXiv asks for ~3s between requests; shared hosts (HF) often need slightly more to avoid 429.
+ARXIV_REQUEST_DELAY_SEC = max(3.0, float(os.getenv("ARXIV_REQUEST_DELAY_SEC", "3.5")))
+# Retries when export.arxiv.org returns 429 Too Many Requests.
+ARXIV_429_MAX_RETRIES = max(1, int(os.getenv("ARXIV_429_MAX_RETRIES", "5")))
+ARXIV_429_BACKOFF_SEC = max(5.0, float(os.getenv("ARXIV_429_BACKOFF_SEC", "20")))
 # When an offset block returns only DB duplicates, advance deeper into arXiv (per category) up to this many blocks.
 ARXIV_SYNC_MAX_OFFSET_BLOCKS = max(1, int(os.getenv("ARXIV_SYNC_MAX_OFFSET_BLOCKS", "6")))
 # Stop after this many consecutive blocks that had candidates but 0 new saves (avoids endless API calls).
@@ -35,7 +40,10 @@ ARXIV_SYNC_STOP_ALL_DUP_STREAK = max(1, int(os.getenv("ARXIV_SYNC_STOP_ALL_DUP_S
 # Hard cap on NEW papers saved per single pipeline run. Once reached, ingest exits cleanly
 # (run still marked completed). Protects DB size + OpenAI cost on small / free tiers.
 ARXIV_SYNC_MAX_SAVES_PER_RUN = max(1, int(os.getenv("ARXIV_SYNC_MAX_SAVES_PER_RUN", "300")))
+# Daily scheduled ingest: 8:00 AM US Central (CDT/CST) — APScheduler uses this timezone, not UTC.
+SCHEDULE_TIMEZONE = os.getenv("SCHEDULE_TIMEZONE", "America/Chicago").strip() or "America/Chicago"
 SCHEDULE_HOUR = int(os.getenv("SCHEDULE_HOUR", "8"))
+SCHEDULE_MINUTE = int(os.getenv("SCHEDULE_MINUTE", "0"))
 REPORTS_DIR = Path(os.getenv("REPORTS_DIR", str(_PROJECT_ROOT / "reports")))
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -83,7 +91,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
 OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o")
 CLASSIFIER_THRESHOLD = float(os.getenv("CLASSIFIER_THRESHOLD", "0.35"))
-SCHEDULE_MINUTE = int(os.getenv("SCHEDULE_MINUTE", "0"))
 
 # Hybrid search: keyword pool size and max papers scanned for dense similarity (SQLite / fallback).
 SEARCH_KEYWORD_POOL = int(os.getenv("SEARCH_KEYWORD_POOL", "250"))

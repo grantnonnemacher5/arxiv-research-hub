@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { searchCorpus } from '../api'
 import { friendlyErrorMessage } from '../lib/apiErrors.js'
+import { PAGE_CARD } from '../constants/layout.js'
 import CategoryBadge from './CategoryBadge.jsx'
 
 const MODES = [
@@ -65,7 +66,7 @@ export default function PaperSearch() {
   const canClear = Boolean(payload || err || q.trim())
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <section className={PAGE_CARD}>
       <h2 className="font-serif text-lg font-semibold text-slate-900">Search corpus</h2>
 
       <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">

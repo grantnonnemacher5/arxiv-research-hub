@@ -6,7 +6,7 @@ import logging
 import re
 import threading
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -69,12 +69,38 @@ app.add_middleware(
 
 
 def _bucket_counts(db: Session) -> dict[str, int]:
+    """Count bucket tags — only reads the buckets column (not embeddings/full rows)."""
     counts = {name: 0 for name in BUCKET_DESCRIPTIONS}
-    for row in db.scalars(select(Paper)).all():
-        for part in (x.strip() for x in (row.buckets or "").split(",") if x.strip()):
+    for buckets_str in db.scalars(select(Paper.buckets)):
+        for part in (x.strip() for x in (buckets_str or "").split(",") if x.strip()):
             if part in counts:
                 counts[part] += 1
     return counts
+
+
+@app.get("/analytics/papers-over-time")
+def analytics_papers_over_time(
+    days: int = Query(90, ge=7, le=365),
+    db: Session = Depends(get_db),
+):
+    """Daily paper counts for dashboard charts (by published_date, else ingest date)."""
+    cutoff = date.today() - timedelta(days=days)
+    day_col = func.coalesce(Paper.published_date, cast(Paper.created_at, Date))
+    rows = db.execute(
+        select(day_col.label("day"), func.count().label("count"))
+        .select_from(Paper)
+        .where(day_col >= cutoff)
+        .group_by(day_col)
+        .order_by(day_col)
+    ).all()
+    return {
+        "days": days,
+        "points": [
+            {"date": r.day.isoformat(), "count": int(r.count)}
+            for r in rows
+            if r.day is not None
+        ],
+    }
 
 
 @app.get("/stats")

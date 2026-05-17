@@ -283,7 +283,7 @@ export default function Dashboard() {
       <div className="mb-10 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4">
         <Stat variant="blue" label="Total papers" value={stats?.total_papers ?? '—'} />
         <Stat variant="green" label="Today" value={stats?.papers_today ?? '—'} />
-        <Stat variant="purple" label="General AI" value={buckets['General AI'] ?? '—'} />
+        <Stat variant="blue" label="General AI" value={buckets['General AI'] ?? '—'} />
         <Stat variant="orange" label="Agents" value={buckets['Autonomous Agents'] ?? '—'} />
         <Stat variant="teal" label="Finance" value={buckets['AI x Finance'] ?? '—'} />
       </div>
@@ -325,7 +325,6 @@ export default function Dashboard() {
 const STAT_VARIANTS = {
   blue: 'border-sky-200 bg-gradient-to-br from-sky-50 to-white ring-1 ring-sky-100/80',
   green: 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-white ring-1 ring-emerald-100/80',
-  purple: 'border-violet-200 bg-gradient-to-br from-violet-50 to-white ring-1 ring-violet-100/80',
   orange: 'border-orange-200 bg-gradient-to-br from-orange-50 to-white ring-1 ring-orange-100/80',
   teal: 'border-teal-200 bg-gradient-to-br from-teal-50 to-white ring-1 ring-teal-100/80',
 }
@@ -333,7 +332,6 @@ const STAT_VARIANTS = {
 const STAT_LABEL = {
   blue: 'text-sky-800',
   green: 'text-emerald-800',
-  purple: 'text-violet-800',
   orange: 'text-orange-800',
   teal: 'text-teal-800',
 }

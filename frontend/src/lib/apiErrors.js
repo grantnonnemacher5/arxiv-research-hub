@@ -38,7 +38,7 @@ export function friendlyErrorMessage(raw) {
         'Confirm Render has deployed and set CORS_ORIGINS to this Vercel URL, then redeploy the API.'
       )
     }
-    return 'Could not reach the API. Is the backend running on port 8000?'
+    return 'Could not reach the API. Start the backend (e.g. uvicorn on port 8000) or set VITE_API_BASE_URL.'
   }
 
   if (d.length > 280) return `${d.slice(0, 277)}…`

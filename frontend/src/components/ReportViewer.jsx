@@ -30,7 +30,6 @@ function formatExported(iso) {
   })
 }
 
-/** Readable lines for the Reports list; new filenames embed paper-from / paper-to. */
 function reportListMeta(r) {
   const windowLabel = PERIOD_LABELS[r.period] || `Window ${r.period}`
   const exported = formatExported(r.generated_at)
@@ -43,6 +42,20 @@ function reportListMeta(r) {
   }
   const secondary = exported ? `Exported ${exported}` : null
   return { primary, secondary, filename: r.filename }
+}
+
+function EmptyIcon() {
+  return (
+    <svg className="h-10 w-10 text-slate-300" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M14 2v6h6M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
 }
 
 export default function ReportViewer({ refreshKey, onToast }) {
@@ -77,40 +90,35 @@ export default function ReportViewer({ refreshKey, onToast }) {
   }, [refreshKey])
 
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <h2 className="font-serif text-lg font-semibold text-slate-900">Reports</h2>
-      <p className="mt-1 text-sm text-slate-500">Generated HTML files.</p>
+    <div className="rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
+      {loading && (
+        <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
+          <span
+            className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-slate-200 border-t-sky-500"
+            aria-hidden
+          />
+          Loading reports…
+        </div>
+      )}
 
-      <div className="mt-5 flex min-h-0 flex-1 flex-col">
-        {loading && (
-          <div className="flex flex-1 items-center justify-center py-16">
-            <div
-              className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-sky-500"
-              aria-hidden
-            />
-          </div>
-        )}
+      {!loading && rows.length === 0 && (
+        <div className="flex flex-col items-center justify-center px-4 py-10 text-center sm:px-6">
+          <EmptyIcon />
+          <p className="mt-3 text-sm text-slate-500">No reports yet — generate one above</p>
+        </div>
+      )}
 
-        {!loading && rows.length === 0 && (
-          <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-16 text-center">
-            <p className="text-sm text-slate-500">Nothing generated yet.</p>
-            <p className="mt-2 max-w-xs text-xs text-slate-400">
-              Use Export report above to create HTML files; they will appear here.
-            </p>
-          </div>
-        )}
-
-        {!loading && rows.length > 0 && (
-          <ul className="max-h-[min(28rem,50vh)] flex-1 space-y-1 overflow-y-auto pr-1">
-            {rows.slice(0, 20).map((r) => {
-              const meta = reportListMeta(r)
-              return (
+      {!loading && rows.length > 0 && (
+        <ul className="max-h-[min(28rem,50vh)] divide-y divide-slate-100 overflow-y-auto">
+          {rows.map((r) => {
+            const meta = reportListMeta(r)
+            return (
               <li
                 key={r.id}
-                className="flex items-center justify-between gap-2 rounded-lg py-2 pl-1 pr-0 hover:bg-slate-50"
+                className="flex items-center justify-between gap-3 px-4 py-3 first:pt-3.5 last:pb-3.5 hover:bg-slate-50/80"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-800" title={meta.filename}>
+                  <p className="truncate text-sm font-medium text-slate-900" title={meta.filename}>
                     {meta.primary}
                   </p>
                   {meta.secondary ? (
@@ -121,7 +129,7 @@ export default function ReportViewer({ refreshKey, onToast }) {
                   </p>
                 </div>
                 <a
-                  className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-sky-600 hover:bg-sky-50 hover:text-sky-700"
+                  className="shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-50"
                   href={apiUrl(`/reports/${encodeURIComponent(r.filename)}`)}
                   target="_blank"
                   rel="noreferrer"
@@ -129,11 +137,10 @@ export default function ReportViewer({ refreshKey, onToast }) {
                   Open
                 </a>
               </li>
-              )
-            })}
-          </ul>
-        )}
-      </div>
-    </aside>
+            )
+          })}
+        </ul>
+      )}
+    </div>
   )
 }

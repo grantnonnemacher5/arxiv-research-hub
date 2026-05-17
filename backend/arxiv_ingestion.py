@@ -7,12 +7,24 @@ from typing import Any, Callable
 
 import requests
 
-from config import ARXIV_MAX_RESULTS, ARXIV_PAGE_COUNT, ARXIV_QUERIES, ARXIV_SUBMITTED_FROM
+from config import (
+    ARXIV_429_BACKOFF_SEC,
+    ARXIV_429_MAX_RETRIES,
+    ARXIV_MAX_RESULTS,
+    ARXIV_PAGE_COUNT,
+    ARXIV_QUERIES,
+    ARXIV_REQUEST_DELAY_SEC,
+    ARXIV_SUBMITTED_FROM,
+)
 
 logger = logging.getLogger(__name__)
 
 ARXIV_API = "https://export.arxiv.org/api/query"
 ATOM = "{http://www.w3.org/2005/Atom}"
+# arXiv asks clients to identify themselves: https://info.arxiv.org/help/api/user-manual.html
+ARXIV_HTTP_HEADERS = {
+    "User-Agent": "arxiv-research-hub/1.0 (https://github.com/Yonas1219/arxiv-research-hub; ingest)",
+}
 
 
 def _build_search_query(category_query: str) -> str:
@@ -81,10 +93,24 @@ def _entry_to_paper(entry: ET.Element) -> dict[str, Any] | None:
     }
 
 
+def _retry_after_seconds(response: requests.Response, attempt: int) -> float:
+    """Honor Retry-After when present; otherwise exponential backoff."""
+    raw = response.headers.get("Retry-After")
+    if raw:
+        try:
+            return max(float(raw), ARXIV_REQUEST_DELAY_SEC)
+        except ValueError:
+            pass
+    return max(ARXIV_REQUEST_DELAY_SEC, ARXIV_429_BACKOFF_SEC * (2**attempt))
+
+
 def fetch_arxiv_papers(
     search_query: str,
     max_results: int | None = None,
     start: int = 0,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+    interruptible_sleep: Callable[[float], None] | None = None,
 ) -> list[dict[str, Any]]:
     max_results = max_results if max_results is not None else ARXIV_MAX_RESULTS
     params = {
@@ -94,16 +120,41 @@ def fetch_arxiv_papers(
         "sortBy": "submittedDate",
         "sortOrder": "descending",
     }
-    response = requests.get(ARXIV_API, params=params, timeout=60)
-    response.raise_for_status()
-
-    root = ET.fromstring(response.content)
-    out: list[dict[str, Any]] = []
-    for entry in root.findall(f"{ATOM}entry"):
-        paper = _entry_to_paper(entry)
-        if paper:
-            out.append(paper)
-    return out
+    sleep_fn = interruptible_sleep or time.sleep
+    last_response: requests.Response | None = None
+    for attempt in range(ARXIV_429_MAX_RETRIES):
+        if cancel_check and cancel_check():
+            raise RuntimeError("arXiv fetch cancelled")
+        if attempt > 0:
+            wait = (
+                _retry_after_seconds(last_response, attempt - 1)
+                if last_response is not None
+                else max(ARXIV_REQUEST_DELAY_SEC, ARXIV_429_BACKOFF_SEC * (2 ** (attempt - 1)))
+            )
+            logger.warning(
+                "arXiv rate limited (attempt %s/%s); sleeping %.1fs before retry",
+                attempt + 1,
+                ARXIV_429_MAX_RETRIES,
+                wait,
+            )
+            sleep_fn(wait)
+        response = requests.get(
+            ARXIV_API, params=params, headers=ARXIV_HTTP_HEADERS, timeout=60
+        )
+        last_response = response
+        if response.status_code == 429:
+            if attempt + 1 >= ARXIV_429_MAX_RETRIES:
+                response.raise_for_status()
+            continue
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        out: list[dict[str, Any]] = []
+        for entry in root.findall(f"{ATOM}entry"):
+            paper = _entry_to_paper(entry)
+            if paper:
+                out.append(paper)
+        return out
+    return []
 
 
 def fetch_all_bucket_queries(
@@ -111,8 +162,11 @@ def fetch_all_bucket_queries(
     start_block: int = 0,
     cancel_check: Callable[[], bool] | None = None,
     interruptible_sleep: Callable[[float], None] | None = None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Fetch from each configured category; de-dupe by arxiv_id within this run.
+
+    Returns ``(papers, meta)`` where ``meta`` has ``requests_ok``, ``requests_failed``,
+    and ``last_error`` (for pipeline diagnostics when saved/skipped stay 0).
 
     Uses ARXIV_PAGE_COUNT offset pages per category. ``start_block`` shifts the whole window
     deeper (older) by ``start_block * ARXIV_PAGE_COUNT * max_results`` rows per category so sync
@@ -131,27 +185,37 @@ def fetch_all_bucket_queries(
     base_start = start_block * block_stride
     seen: set[str] = set()
     merged: list[dict[str, Any]] = []
+    meta: dict[str, Any] = {"requests_ok": 0, "requests_failed": 0, "last_error": None}
     first_request = True
     sleep_fn = interruptible_sleep or time.sleep
     for q in ARXIV_QUERIES:
         if cancel_check and cancel_check():
             logger.info("arXiv fetch: cancel requested — exiting before next category")
-            return merged
+            return merged, meta
         full_q = _build_search_query(q)
         for page in range(ARXIV_PAGE_COUNT):
             if cancel_check and cancel_check():
                 logger.info("arXiv fetch: cancel requested — exiting between pages")
-                return merged
+                return merged, meta
             if not first_request:
-                sleep_fn(3.1)  # arXiv asks for ~3s between requests
+                sleep_fn(ARXIV_REQUEST_DELAY_SEC)
                 if cancel_check and cancel_check():
                     logger.info("arXiv fetch: cancel requested after rate-limit sleep")
-                    return merged
+                    return merged, meta
             first_request = False
             start = base_start + page * max_results_per_query
             try:
-                batch = fetch_arxiv_papers(full_q, max_results=max_results_per_query, start=start)
+                batch = fetch_arxiv_papers(
+                    full_q,
+                    max_results=max_results_per_query,
+                    start=start,
+                    cancel_check=cancel_check,
+                    interruptible_sleep=sleep_fn,
+                )
+                meta["requests_ok"] += 1
             except Exception as exc:
+                meta["requests_failed"] += 1
+                meta["last_error"] = str(exc)[:500]
                 logger.error("arXiv fetch failed for %s start=%s: %s", full_q, start, exc)
                 break
             if not batch:
@@ -162,4 +226,4 @@ def fetch_all_bucket_queries(
                     continue
                 seen.add(aid)
                 merged.append(paper)
-    return merged
+    return merged, meta

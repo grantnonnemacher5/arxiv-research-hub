@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getPapers } from '../api'
 import { friendlyErrorMessage } from '../lib/apiErrors.js'
+import { PAGE_CARD } from '../constants/layout.js'
 import CategoryBadge from './CategoryBadge.jsx'
 import PaperDetailDrawer from './PaperDetailDrawer.jsx'
 
@@ -89,13 +90,14 @@ export default function PaperList({ refreshKey, onToast }) {
       .filter(Boolean)
 
   return (
-    <section className="flex h-full w-full min-h-0 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <section className={`flex w-full min-h-0 flex-col ${PAGE_CARD}`}>
       <div className="border-b border-slate-100 pb-5 text-left">
-        <h2 className="font-serif text-lg font-semibold text-slate-900">Papers</h2>
+        <h2 className="font-serif text-lg font-semibold text-slate-900">Browse papers</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Filter by bucket, search the index, or open a row for full detail.
+          Filter by bucket or title — paginated list of everything ingested.
         </p>
-        <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Filter papers by bucket">
+        <div className="mt-4 flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter papers by bucket">
           {BUCKET_FILTERS.map(({ value, label }) => {
             const active = bucketFilter === value
             return (
@@ -117,10 +119,9 @@ export default function PaperList({ refreshKey, onToast }) {
               </button>
             )
           })}
-        </div>
-        <div className="mt-4 w-full max-w-2xl">
-          <label className="relative block w-full">
-            <span className="sr-only">Search</span>
+          </div>
+          <label className="relative block min-w-[min(100%,220px)] flex-1 sm:min-w-[280px]">
+            <span className="sr-only">Filter library</span>
             <svg
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
               viewBox="0 0 24 24"
@@ -146,7 +147,7 @@ export default function PaperList({ refreshKey, onToast }) {
 
       <div className="flex min-h-0 flex-1 flex-col">
         {loading && (
-          <div className="flex flex-1 items-center gap-2 py-12 text-sm text-slate-500">
+          <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
             <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-sky-500" />
             Loading…
           </div>

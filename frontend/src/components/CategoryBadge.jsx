@@ -1,5 +1,5 @@
 const STYLES = {
-  'General AI': 'bg-indigo-50 text-indigo-800 ring-1 ring-indigo-100',
+  'General AI': 'bg-blue-50 text-blue-800 ring-1 ring-blue-100',
   'Autonomous Agents': 'bg-sky-50 text-sky-800 ring-1 ring-sky-100',
   'AI x Finance': 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100',
   Unclassified: 'bg-amber-200 text-stone-900 ring-1 ring-amber-400/80 font-semibold',

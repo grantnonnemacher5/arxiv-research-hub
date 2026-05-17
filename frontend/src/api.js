@@ -30,8 +30,30 @@ async function parseResponse(res) {
   return res.text();
 }
 
+/** Abort hung requests so KPIs don't sit on "—" forever. */
+async function fetchApi(path, options = {}, timeoutMs = 25_000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(apiUrl(path), { ...options, signal: ctrl.signal });
+  } catch (e) {
+    if (e?.name === "AbortError") {
+      throw new Error("Request timed out — is the API responding?");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function getStats() {
-  const res = await fetch(apiUrl("/stats"));
+  const res = await fetchApi("/stats");
+  return parseResponse(res);
+}
+
+export async function getPapersOverTime(days = 90) {
+  const params = new URLSearchParams({ days: String(days) });
+  const res = await fetch(apiUrl(`/analytics/papers-over-time?${params.toString()}`));
   return parseResponse(res);
 }
 

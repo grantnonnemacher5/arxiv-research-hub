@@ -92,24 +92,33 @@ export default function PipelineRuns({
     : Math.max(1, Math.ceil(total / payload.page_size));
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <h2 className="font-serif text-lg font-semibold text-slate-900">
-        Pipeline runs
-      </h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Recent sync jobs —{" "}
-        <strong className="font-medium text-slate-600">Saved</strong> is new
-        papers;
-        <strong className="font-medium text-slate-600"> skipped</strong> means
-        that arXiv id was already in your library. Completed + 0 saved usually
-        means the fetched batch was all duplicates, not a failed sync.{" "}
-        <strong className="font-medium text-slate-600">Running</strong> updates
-        saved/skipped in batches while the job is active.{" "}
-        <strong className="font-medium text-slate-600">Stopped</strong> means you cancelled the sync
-        from the dashboard; if the server crashes first, the row may stay running until the next
-        deploy (then it is marked failed). Dashboard totals always come
-        from the papers table.
-      </p>
+    <section className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-[0_1px_3px_rgba(15,23,42,0.06)] sm:p-6">
+      <h2 className="text-sm font-semibold text-slate-900">Pipeline runs</h2>
+      <details className="group mt-3 rounded-xl border border-slate-100 bg-slate-50/80">
+        <summary className="cursor-pointer list-none px-4 py-2.5 text-sm font-medium text-slate-700 marker:content-none [&::-webkit-details-marker]:hidden">
+          <span className="inline-flex items-center gap-2">
+            <span className="text-slate-400 transition group-open:rotate-90">▸</span>
+            How to read this table
+          </span>
+        </summary>
+        <ul className="space-y-1.5 border-t border-slate-100 px-4 py-3 text-sm leading-relaxed text-slate-600">
+          <li>
+            <strong className="font-medium text-slate-700">Saved</strong> — new papers ingested this run.
+          </li>
+          <li>
+            <strong className="font-medium text-slate-700">Skipped</strong> — arXiv id was already in your library.
+          </li>
+          <li>
+            <strong className="font-medium text-slate-700">Completed</strong> with 0 saved usually means the batch was all duplicates, not a failed sync.
+          </li>
+          <li>
+            <strong className="font-medium text-slate-700">Running</strong> — saved/skipped update in batches while the job is active.
+          </li>
+          <li>
+            <strong className="font-medium text-slate-700">Stopped</strong> — you cancelled from Pipeline; a crash may leave a row as running until the next deploy.
+          </li>
+        </ul>
+      </details>
       {err && !firstLoadDoneRef.current && (
         <p className="mt-3 text-sm text-red-700" role="alert">
           {err}
@@ -132,45 +141,34 @@ export default function PipelineRuns({
       )}
 
       {firstLoadDoneRef.current && items.length > 0 && (
-        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+        <div className="mt-5 overflow-hidden rounded-lg border border-slate-200">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[880px] table-fixed border-collapse text-left text-sm">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              <tr className="border-b-2 border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
                 <th
-                  className="border-r border-slate-200 px-3 py-2.5"
+                  className="w-[17%] px-4 py-3"
                   title="US Central (Chicago). Daylight saving: CDT. Standard time: CST."
                 >
                   Finished (CT)
                 </th>
-                <th className="border-r border-slate-200 px-3 py-2.5">
-                  Trigger
-                </th>
-                <th className="border-r border-slate-200 px-3 py-2.5">
-                  Status
-                </th>
-                <th className="border-r border-slate-200 px-3 py-2.5 text-right">
-                  Saved
-                </th>
-                <th className="border-r border-slate-200 px-3 py-2.5 text-right">
-                  Skipped
-                </th>
-                <th className="border-r border-slate-200 px-3 py-2.5 text-right">
-                  Backfill
-                </th>
-                <th className="border-r border-slate-200 px-3 py-2.5 text-right">
-                  Duration
-                </th>
-                <th className="px-3 py-2.5">Error</th>
+                <th className="w-[9%] px-4 py-3">Trigger</th>
+                <th className="w-[11%] px-4 py-3">Status</th>
+                <th className="w-[8%] px-4 py-3 text-right">Saved</th>
+                <th className="w-[8%] px-4 py-3 text-right">Skipped</th>
+                <th className="w-[9%] px-4 py-3 text-right">Backfill</th>
+                <th className="w-[10%] px-4 py-3 text-right">Duration</th>
+                <th className="px-4 py-3">Error</th>
               </tr>
             </thead>
             <tbody>
               {items.map((r) => (
                 <tr
                   key={r.id}
-                  className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60 last:border-b-0"
+                  className="border-b border-slate-200 bg-white"
                 >
                   <td
-                    className="border-r border-slate-200 px-3 py-2.5 font-mono text-xs text-slate-700"
+                    className="px-4 py-3 font-mono text-xs text-slate-700"
                     title={
                       r.finished_at
                         ? `${r.finished_at} (UTC) · US Central, America/Chicago (CST or CDT by date)`
@@ -179,10 +177,8 @@ export default function PipelineRuns({
                   >
                     {r.finished_at ? formatFinishedChicago(r.finished_at) : "—"}
                   </td>
-                  <td className="border-r border-slate-200 px-3 py-2.5 text-slate-700">
-                    {r.trigger}
-                  </td>
-                  <td className="border-r border-slate-200 px-3 py-2.5">
+                  <td className="px-4 py-3 capitalize text-slate-700">{r.trigger}</td>
+                  <td className="px-4 py-3">
                     <span
                       className={
                         r.status === "completed"
@@ -199,17 +195,13 @@ export default function PipelineRuns({
                         : pipelineStatusLabel(r.status)}
                     </span>
                   </td>
-                  <td className="border-r border-slate-200 px-3 py-2.5 text-right tabular-nums text-slate-800">
-                    {r.saved}
-                  </td>
-                  <td className="border-r border-slate-200 px-3 py-2.5 text-right tabular-nums text-slate-800">
+                  <td className="px-4 py-3 text-right tabular-nums text-slate-800">{r.saved}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-slate-800">
                     {r.skipped_duplicates}
                   </td>
-                  <td className="border-r border-slate-200 px-3 py-2.5 text-right tabular-nums text-slate-800">
-                    {r.backfilled}
-                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-slate-800">{r.backfilled}</td>
                   <td
-                    className="border-r border-slate-200 px-3 py-2.5 text-right text-slate-700"
+                    className="px-4 py-3 text-right text-slate-700"
                     title={
                       r.duration_ms != null
                         ? `${r.duration_ms.toLocaleString()} ms`
@@ -219,7 +211,7 @@ export default function PipelineRuns({
                     {formatDurationMs(r.duration_ms)}
                   </td>
                   <td
-                    className={`max-w-[220px] truncate px-3 py-2.5 text-xs ${
+                    className={`truncate px-4 py-3 text-xs ${
                       r.status === "failed"
                         ? "text-red-800"
                         : r.status === "cancelled"
@@ -234,8 +226,8 @@ export default function PipelineRuns({
               ))}
             </tbody>
           </table>
-          {totalPages > 1 ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/50 px-3 py-2.5 text-xs text-slate-600">
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
               <p className="tabular-nums">
                 Page{" "}
                 <span className="font-semibold text-slate-800">{page}</span> of{" "}
@@ -264,7 +256,6 @@ export default function PipelineRuns({
                 </button>
               </div>
             </div>
-          ) : null}
         </div>
       )}
     </section>

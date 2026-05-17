@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from arxiv_ingestion import fetch_all_bucket_queries
 from config import (
+    ARXIV_REQUEST_DELAY_SEC,
     ARXIV_SYNC_MAX_OFFSET_BLOCKS,
     ARXIV_SYNC_MAX_SAVES_PER_RUN,
     ARXIV_SYNC_STOP_ALL_DUP_STREAK,
@@ -186,6 +187,36 @@ def close_stale_running_pipeline_runs() -> int:
         db.close()
 
 
+def _empty_ingest_note(
+    *,
+    saved: int,
+    skipped: int,
+    saw_candidates: bool,
+    fetch_meta: dict[str, Any],
+) -> str | None:
+    """Human-readable note when a run completes but ingested nothing."""
+    if saved > 0 or skipped > 0:
+        return None
+    failed = int(fetch_meta.get("requests_failed") or 0)
+    ok = int(fetch_meta.get("requests_ok") or 0)
+    last_err = (fetch_meta.get("last_error") or "").strip()
+    if failed > 0 and ok == 0:
+        if "429" in last_err or "Too Many Requests" in last_err:
+            return (
+                "arXiv rate-limited this sync (HTTP 429). Wait a few minutes and run again; "
+                "the API retries automatically with backoff."
+            )
+        base = f"Could not reach arXiv API ({failed} failed request(s))."
+        if last_err:
+            return f"{base} Last error: {last_err[:220]}"
+        return f"{base} Check Hugging Face Space logs for 'arXiv fetch failed'."
+    if not saw_candidates:
+        return "arXiv returned no papers for this sync (empty feed or all categories failed)."
+    return (
+        "No new papers saved; every candidate was already in the library or had no classifiable text."
+    )
+
+
 def _classify_and_pack(text: str) -> tuple[str, bytes | None]:
     if not text.strip():
         return "", None
@@ -310,6 +341,9 @@ def _run_full_pipeline_impl(
         if run_id and progress_counter % 5 == 0:
             _update_pipeline_run_progress(run_id, saved, skipped, t0)
 
+    fetch_meta: dict[str, Any] = {"requests_ok": 0, "requests_failed": 0, "last_error": None}
+    saw_any_candidates = False
+
     try:
         all_dup_streak = 0
         save_cap_reached = False
@@ -320,17 +354,20 @@ def _run_full_pipeline_impl(
                 logger.info("Pipeline: cancel requested before offset block %s", start_block)
                 break
             if start_block > 0:
-                _interruptible_sleep(3.1)
+                _interruptible_sleep(ARXIV_REQUEST_DELAY_SEC)
                 if pipeline_cancel_requested():
                     cancelled_early = True
                     logger.info("Pipeline: cancel requested during inter-block sleep")
                     break
-            papers = fetch_all_bucket_queries(
+            papers, block_meta = fetch_all_bucket_queries(
                 max_results_per_query=max_results_per_query,
                 start_block=start_block,
                 cancel_check=pipeline_cancel_requested,
                 interruptible_sleep=_interruptible_sleep,
             )
+            fetch_meta = block_meta
+            if papers:
+                saw_any_candidates = True
             if pipeline_cancel_requested():
                 cancelled_early = True
                 logger.info("Pipeline: cancel requested after arXiv fetch")
@@ -481,7 +518,13 @@ def _run_full_pipeline_impl(
             "backfilled": backfilled,
         }
         duration_ms = int((time.monotonic() - t0) * 1000)
-        send_pipeline_webhook("completed", stats, None, t0)
+        completion_note = _empty_ingest_note(
+            saved=saved,
+            skipped=skipped,
+            saw_candidates=saw_any_candidates,
+            fetch_meta=fetch_meta,
+        )
+        send_pipeline_webhook("completed", stats, completion_note, t0)
         _finalize_pipeline_run(
             run_id,
             status="completed",
@@ -489,7 +532,7 @@ def _run_full_pipeline_impl(
             saved=saved,
             skipped=skipped,
             backfilled=backfilled,
-            error=None,
+            error=completion_note,
         )
         return stats
     except Exception as e:
