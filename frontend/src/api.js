@@ -1,16 +1,13 @@
 import { friendlyErrorMessage } from "./lib/apiErrors.js";
 
-/**
- * If `VITE_API_BASE_URL` is missing at build time (common when Vercel env UI misbehaves),
- * production builds still point at Render. Override via env or change this URL if yours differs.
- */
-const PRODUCTION_API_FALLBACK = "https://arxiv-research-hub-1.onrender.com";
-
+/** Set `VITE_API_BASE_URL` in the repo root `.env` (see `.env.example`). */
 function resolveApiBase() {
   const fromEnv = import.meta.env.VITE_API_BASE_URL?.trim();
   if (fromEnv) return fromEnv;
-  if (import.meta.env.PROD) return PRODUCTION_API_FALLBACK;
-  return "http://127.0.0.1:8000";
+  if (import.meta.env.DEV) return "http://127.0.0.1:8000";
+  throw new Error(
+    "VITE_API_BASE_URL is not set. Add it to .env at the repo root or in Vercel project settings, then rebuild.",
+  );
 }
 
 const API_BASE = resolveApiBase().replace(/\/$/, "");

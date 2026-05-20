@@ -14,8 +14,6 @@ This project ingests papers from arXiv, stores them in a database, assigns each 
 
 Repository: https://github.com/grantnonnemacher5/arxiv-research-hub
 
-Additional writeups live in docs/TECHNICAL_OVERVIEW_FOR_PM.md, docs/HOW_WE_BUILT_IT_NON_TECH.md, and plan.md.
-
 What it does
 
 The app syncs on a daily schedule (default 8:00 AM US Central). You can also start a sync from the Pipeline screen. Both use the same backend logic and the same pipeline_runs history table.
@@ -41,7 +39,7 @@ Run locally
 Install Python 3.11+ and Node 18+. Clone the repo, create a virtualenv, and install dependencies:
 
 ```bash
-git clone ...
+git clone https://github.com/grantnonnemacher5/arxiv-research-hub
 cd arxiv-research-hub
 python3 -m venv .venv
 source .venv/bin/activate
@@ -136,7 +134,7 @@ Deployment
 
 API: build the Dockerfile and deploy to Hugging Face Spaces, Render, or similar. Set OPENAI_API_KEY and DATABASE_URL in the host environment. Health check: GET /health.
 
-Frontend: build with npm run build on Vercel. Set VITE_API_BASE_URL to the public API URL. If needed, update PRODUCTION_API_FALLBACK in frontend/src/api.js.
+Frontend: build with npm run build on Vercel. Set `VITE_API_BASE_URL` in Vercel environment variables to your public API URL (same value as in `.env` for local builds).
 
 Database: create PostgreSQL, set DATABASE_URL on the API service, deploy once so tables and extensions are created.
 
