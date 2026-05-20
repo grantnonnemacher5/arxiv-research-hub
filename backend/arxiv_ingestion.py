@@ -25,7 +25,7 @@ ARXIV_API = "https://export.arxiv.org/api/query"
 ATOM = "{http://www.w3.org/2005/Atom}"
 # arXiv asks clients to identify themselves: https://info.arxiv.org/help/api/user-manual.html
 ARXIV_HTTP_HEADERS = {
-    "User-Agent": "arxiv-research-hub/1.0 (https://github.com/Yonas1219/arxiv-research-hub; ingest)",
+    "User-Agent": "arxiv-research-hub/1.0 (https://github.com/grantnonnemacher5/arxiv-research-hub; ingest)",
 }
 
 
