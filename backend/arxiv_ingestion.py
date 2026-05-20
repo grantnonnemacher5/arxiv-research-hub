@@ -1,8 +1,9 @@
 import logging
+import random
 import re
 import time
 import xml.etree.ElementTree as ET
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 import requests
@@ -14,6 +15,7 @@ from config import (
     ARXIV_PAGE_COUNT,
     ARXIV_QUERIES,
     ARXIV_REQUEST_DELAY_SEC,
+    ARXIV_REQUEST_JITTER_SEC,
     ARXIV_SUBMITTED_FROM,
 )
 
@@ -30,6 +32,31 @@ ARXIV_HTTP_HEADERS = {
 def _build_search_query(category_query: str) -> str:
     # From 2020 onward (plan). Spaces around TO work; +TO+ inside brackets triggers arXiv API errors.
     return f"({category_query}) AND submittedDate:[{ARXIV_SUBMITTED_FROM} TO 203012312359]"
+
+
+def _format_yyyymmddhhmm(d: datetime) -> str:
+    """arXiv submittedDate format (UTC). Date-only inputs get 00:00."""
+    return d.strftime("%Y%m%d%H%M")
+
+
+def build_dated_search_query(category_query: str, from_dt: datetime, to_dt: datetime | None = None) -> str:
+    """Date-windowed query for the watermark fresh pass.
+
+    ``category_query`` is e.g. ``cat:cs.AI``. ``from_dt`` should already include
+    the safety overlap. ``to_dt`` defaults to far-future to capture everything new.
+    """
+    end = to_dt if to_dt is not None else datetime(2030, 12, 31, 23, 59)
+    return (
+        f"({category_query}) AND submittedDate:[{_format_yyyymmddhhmm(from_dt)} "
+        f"TO {_format_yyyymmddhhmm(end)}]"
+    )
+
+
+def jittered_delay() -> float:
+    """Base arXiv delay + small random jitter — desynchronizes co-tenants on shared egress."""
+    if ARXIV_REQUEST_JITTER_SEC <= 0:
+        return ARXIV_REQUEST_DELAY_SEC
+    return ARXIV_REQUEST_DELAY_SEC + random.uniform(0.0, ARXIV_REQUEST_JITTER_SEC)
 
 
 def _parse_published(text: str | None) -> date | None:

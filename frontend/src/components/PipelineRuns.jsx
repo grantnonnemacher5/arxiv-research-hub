@@ -59,7 +59,9 @@ export default function PipelineRuns({
 
     const schedule = (data) => {
       if (cancelled) return;
-      const hasRunning = (data?.items ?? []).some((r) => r.status === "running");
+      const hasRunning = (data?.items ?? []).some(
+        (r) => r.status === "running",
+      );
       const next = hasRunning || activePolling ? ACTIVE_POLL_MS : IDLE_POLL_MS;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(async () => {
@@ -97,25 +99,34 @@ export default function PipelineRuns({
       <details className="group mt-3 rounded-xl border border-slate-100 bg-slate-50/80">
         <summary className="cursor-pointer list-none px-4 py-2.5 text-sm font-medium text-slate-700 marker:content-none [&::-webkit-details-marker]:hidden">
           <span className="inline-flex items-center gap-2">
-            <span className="text-slate-400 transition group-open:rotate-90">▸</span>
+            <span className="text-slate-400 transition group-open:rotate-90">
+              ▸
+            </span>
             How to read this table
           </span>
         </summary>
         <ul className="space-y-1.5 border-t border-slate-100 px-4 py-3 text-sm leading-relaxed text-slate-600">
           <li>
-            <strong className="font-medium text-slate-700">Saved</strong> — new papers ingested this run.
+            <strong className="font-medium text-slate-700">Saved</strong> — new
+            papers ingested this run.
           </li>
           <li>
-            <strong className="font-medium text-slate-700">Skipped</strong> — arXiv id was already in your library.
+            <strong className="font-medium text-slate-700">Skipped</strong> —
+            arXiv id was already in your library.
           </li>
           <li>
-            <strong className="font-medium text-slate-700">Completed</strong> with 0 saved usually means the batch was all duplicates, not a failed sync.
+            <strong className="font-medium text-slate-700">Completed</strong>{" "}
+            with 0 saved usually means the batch was all duplicates, not a
+            failed sync.
           </li>
           <li>
-            <strong className="font-medium text-slate-700">Running</strong> — saved/skipped update in batches while the job is active.
+            <strong className="font-medium text-slate-700">Running</strong> —
+            saved/skipped update in batches while the job is active.
           </li>
           <li>
-            <strong className="font-medium text-slate-700">Stopped</strong> — you cancelled from Pipeline; a crash may leave a row as running until the next deploy.
+            <strong className="font-medium text-slate-700">Stopped</strong> —
+            you cancelled from Pipeline; a crash may leave a row as running
+            until the next deploy.
           </li>
         </ul>
       </details>
@@ -143,119 +154,122 @@ export default function PipelineRuns({
       {firstLoadDoneRef.current && items.length > 0 && (
         <div className="mt-5 overflow-hidden rounded-lg border border-slate-200">
           <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] table-fixed border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b-2 border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                <th
-                  className="w-[17%] px-4 py-3"
-                  title="US Central (Chicago). Daylight saving: CDT. Standard time: CST."
-                >
-                  Finished (CT)
-                </th>
-                <th className="w-[9%] px-4 py-3">Trigger</th>
-                <th className="w-[11%] px-4 py-3">Status</th>
-                <th className="w-[8%] px-4 py-3 text-right">Saved</th>
-                <th className="w-[8%] px-4 py-3 text-right">Skipped</th>
-                <th className="w-[9%] px-4 py-3 text-right">Backfill</th>
-                <th className="w-[10%] px-4 py-3 text-right">Duration</th>
-                <th className="px-4 py-3">Error</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-b border-slate-200 bg-white"
-                >
-                  <td
-                    className="px-4 py-3 font-mono text-xs text-slate-700"
-                    title={
-                      r.finished_at
-                        ? `${r.finished_at} (UTC) · US Central, America/Chicago (CST or CDT by date)`
-                        : ""
-                    }
+            <table className="w-full min-w-[880px] table-fixed border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b-2 border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <th
+                    className="w-[17%] px-4 py-3"
+                    title="US Central (Chicago). Daylight saving: CDT. Standard time: CST."
                   >
-                    {r.finished_at ? formatFinishedChicago(r.finished_at) : "—"}
-                  </td>
-                  <td className="px-4 py-3 capitalize text-slate-700">{r.trigger}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={
-                        r.status === "completed"
-                          ? "rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900"
-                          : r.status === "running"
-                            ? "rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-950"
-                            : r.status === "cancelled"
-                              ? "rounded-md bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-800"
-                              : "rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-900"
+                    Finished (CT)
+                  </th>
+                  <th className="w-[9%] px-4 py-3">Trigger</th>
+                  <th className="w-[11%] px-4 py-3">Status</th>
+                  <th className="w-[8%] px-4 py-3 text-right">Saved</th>
+                  <th className="w-[8%] px-4 py-3 text-right">Skipped</th>
+                  <th className="w-[9%] px-4 py-3 text-right">Backfill</th>
+                  <th className="w-[10%] px-4 py-3 text-right">Duration</th>
+                  <th className="px-4 py-3">Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((r) => (
+                  <tr key={r.id} className="border-b border-slate-200 bg-white">
+                    <td
+                      className="px-4 py-3 font-mono text-xs text-slate-700"
+                      title={
+                        r.finished_at
+                          ? `${r.finished_at} (UTC) · US Central, America/Chicago (CST or CDT by date)`
+                          : ""
                       }
                     >
-                      {r.status === "running" && cancelRequested
-                        ? "Stopping…"
-                        : pipelineStatusLabel(r.status)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-slate-800">{r.saved}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-slate-800">
-                    {r.skipped_duplicates}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-slate-800">{r.backfilled}</td>
-                  <td
-                    className="px-4 py-3 text-right text-slate-700"
-                    title={
-                      r.duration_ms != null
-                        ? `${r.duration_ms.toLocaleString()} ms`
-                        : ""
-                    }
-                  >
-                    {formatDurationMs(r.duration_ms)}
-                  </td>
-                  <td
-                    className={`truncate px-4 py-3 text-xs ${
-                      r.status === "failed"
-                        ? "text-red-800"
-                        : r.status === "cancelled"
-                          ? "text-slate-700"
-                          : "text-slate-600"
-                    }`}
-                    title={r.error || ""}
-                  >
-                    {r.error || "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      {r.finished_at
+                        ? formatFinishedChicago(r.finished_at)
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3 capitalize text-slate-700">
+                      {r.trigger}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={
+                          r.status === "completed"
+                            ? "rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900"
+                            : r.status === "running"
+                              ? "rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-950"
+                              : r.status === "cancelled"
+                                ? "rounded-md bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-800"
+                                : "rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-900"
+                        }
+                      >
+                        {r.status === "running" && cancelRequested
+                          ? "Stopping…"
+                          : pipelineStatusLabel(r.status)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-800">
+                      {r.saved}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-800">
+                      {r.skipped_duplicates}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-800">
+                      {r.backfilled}
+                    </td>
+                    <td
+                      className="px-4 py-3 text-right text-slate-700"
+                      title={
+                        r.duration_ms != null
+                          ? `${r.duration_ms.toLocaleString()} ms`
+                          : ""
+                      }
+                    >
+                      {formatDurationMs(r.duration_ms)}
+                    </td>
+                    <td
+                      className={`truncate px-4 py-3 text-xs ${
+                        r.status === "failed"
+                          ? "text-red-800"
+                          : r.status === "cancelled"
+                            ? "text-slate-700"
+                            : "text-slate-600"
+                      }`}
+                      title={r.error || ""}
+                    >
+                      {r.error || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-              <p className="tabular-nums">
-                Page{" "}
-                <span className="font-semibold text-slate-800">{page}</span> of{" "}
-                <span className="font-semibold text-slate-800">
-                  {totalPages}
-                </span>
-                <span className="mx-2 text-slate-300">·</span>
-                {total} run{total !== 1 ? "s" : ""} total
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Next
-                </button>
-              </div>
+            <p className="tabular-nums">
+              Page <span className="font-semibold text-slate-800">{page}</span>{" "}
+              of{" "}
+              <span className="font-semibold text-slate-800">{totalPages}</span>
+              <span className="mx-2 text-slate-300">·</span>
+              {total} run{total !== 1 ? "s" : ""} total
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
             </div>
+          </div>
         </div>
       )}
     </section>

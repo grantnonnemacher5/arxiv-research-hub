@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from classifier import BUCKET_DESCRIPTIONS
 from config import ARXIV_MAX_RESULTS, CORS_ORIGINS, INGEST_FETCH_PDF, REPORTS_DIR
+from ingest_checkpoint import checkpoint_status
 from database import Paper, PipelineRun, Report, SessionLocal, get_db, init_db
 from pipeline import (
     close_stale_running_pipeline_runs,
@@ -101,6 +102,12 @@ def analytics_papers_over_time(
             if r.day is not None
         ],
     }
+
+
+@app.get("/ingest-checkpoint")
+def ingest_checkpoint():
+    """Where deep arXiv pagination resumes (block 0 is always scanned for new papers)."""
+    return checkpoint_status()
 
 
 @app.get("/stats")

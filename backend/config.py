@@ -10,6 +10,13 @@ load_dotenv(_PROJECT_ROOT / ".env")
 load_dotenv(_BACKEND_DIR / ".env")
 load_dotenv()
 
+
+def _env_bool(key: str, default: bool) -> bool:
+    raw = os.getenv(key)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
 # Database
 # - Local / MVP (default): SQLite file next to this package — no env needed.
 # - Production: set DATABASE_URL to PostgreSQL, e.g. from Neon, Supabase, Railway:
@@ -35,11 +42,37 @@ ARXIV_429_MAX_RETRIES = max(1, int(os.getenv("ARXIV_429_MAX_RETRIES", "5")))
 ARXIV_429_BACKOFF_SEC = max(5.0, float(os.getenv("ARXIV_429_BACKOFF_SEC", "20")))
 # When an offset block returns only DB duplicates, advance deeper into arXiv (per category) up to this many blocks.
 ARXIV_SYNC_MAX_OFFSET_BLOCKS = max(1, int(os.getenv("ARXIV_SYNC_MAX_OFFSET_BLOCKS", "6")))
+# Each run scans block 0 (newest) then resumes deep pages from ingest_checkpoints.next_deep_block.
+ARXIV_RESUME_DEEP_SCAN = _env_bool("ARXIV_RESUME_DEEP_SCAN", True)
 # Stop after this many consecutive blocks that had candidates but 0 new saves (avoids endless API calls).
 ARXIV_SYNC_STOP_ALL_DUP_STREAK = max(1, int(os.getenv("ARXIV_SYNC_STOP_ALL_DUP_STREAK", "3")))
 # Hard cap on NEW papers saved per single pipeline run. Once reached, ingest exits cleanly
 # (run still marked completed). Protects DB size + OpenAI cost on small / free tiers.
 ARXIV_SYNC_MAX_SAVES_PER_RUN = max(1, int(os.getenv("ARXIV_SYNC_MAX_SAVES_PER_RUN", "300")))
+
+# --- Ingest v2: per-category watermark fresh-pass (see plan.md "Ingest pipeline v2") ---
+# Hard wall-clock cap per run. On hit we finish current paper, then exit `completed` with a note.
+# Default = 15 minutes; stakeholders accept 10–15 min as the daily run target.
+INGEST_TIME_BUDGET_SEC = max(60, int(os.getenv("INGEST_TIME_BUDGET_SEC", "900")))
+# Query window is `[watermark - safety_overlap, now]`. Overlap catches late-submitted /
+# cross-listed papers and clock drift; the DB unique constraint on arxiv_id makes
+# the redundancy free of double-saves.
+ARXIV_SAFETY_OVERLAP_HOURS = max(0, int(os.getenv("ARXIV_SAFETY_OVERLAP_HOURS", "48")))
+# Per-category max pages in the fresh pass (each page = ARXIV_MAX_RESULTS papers).
+ARXIV_FRESH_MAX_PAGES_PER_CATEGORY = max(1, int(os.getenv("ARXIV_FRESH_MAX_PAGES_PER_CATEGORY", "3")))
+# Random extra delay added on top of ARXIV_REQUEST_DELAY_SEC. Desynchronizes from
+# other Hugging Face Space tenants hitting arXiv from the same egress IP.
+ARXIV_REQUEST_JITTER_SEC = max(0.0, float(os.getenv("ARXIV_REQUEST_JITTER_SEC", "1.0")))
+# Per-category circuit breaker: after this many consecutive 429s in a single run for
+# one category, stop paging that category (other categories still run).
+ARXIV_CATEGORY_429_BREAKER = max(1, int(os.getenv("ARXIV_CATEGORY_429_BREAKER", "3")))
+# Bootstrap window when a category has no watermark yet (first ever run for that category).
+ARXIV_BOOTSTRAP_WINDOW_DAYS = max(1, int(os.getenv("ARXIV_BOOTSTRAP_WINDOW_DAYS", "14")))
+# Run the legacy deep offset-block backfill after the fresh pass. Off by default —
+# enable on a separate weekly cron or for one-off catch-up runs.
+ARXIV_RUN_DEEP_BACKFILL = _env_bool("ARXIV_RUN_DEEP_BACKFILL", False)
+# Master switch: when false, fall back to legacy offset-block behavior (kept for safety).
+ARXIV_USE_WATERMARK_FRESH = _env_bool("ARXIV_USE_WATERMARK_FRESH", True)
 # Daily scheduled ingest: 8:00 AM US Central (CDT/CST) — APScheduler uses this timezone, not UTC.
 SCHEDULE_TIMEZONE = os.getenv("SCHEDULE_TIMEZONE", "America/Chicago").strip() or "America/Chicago"
 SCHEDULE_HOUR = int(os.getenv("SCHEDULE_HOUR", "8"))
@@ -68,13 +101,6 @@ ARXIV_SUBMITTED_FROM = "202001010000"
 # Outbound pipeline notifications (optional). If WEBHOOK_URL is empty, no POST is sent.
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip()
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
-
-
-def _env_bool(key: str, default: bool) -> bool:
-    raw = os.getenv(key)
-    if raw is None or raw.strip() == "":
-        return default
-    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 # When true (default): PyMuPDF PDF download during ingest (spikes RAM). Set INGEST_FETCH_PDF=false on

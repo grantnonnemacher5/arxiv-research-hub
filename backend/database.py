@@ -2,7 +2,17 @@ from datetime import date, datetime
 import logging
 from typing import Generator
 
-from sqlalchemy import Date, DateTime, Integer, LargeBinary, String, Text, create_engine, inspect, text
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    create_engine,
+    inspect,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from config import DATABASE_URL
@@ -46,6 +56,37 @@ class Report(Base):
     generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     # Full HTML persisted for hosts with ephemeral disk (e.g. Render); serve via GET /reports/{filename}
     html_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class IngestCheckpoint(Base):
+    """Singleton row: resume deep arXiv pagination across pipeline runs (block 0 = newest each run)."""
+
+    __tablename__ = "ingest_checkpoints"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    next_deep_block: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class CategoryWatermark(Base):
+    """Per-category date watermark: newest submitted_date we've ingested for this arXiv category.
+
+    Pipeline reads this on every run and queries arXiv only for
+    ``submittedDate:[ (watermark - safety_overlap) TO NOW ]`` so each scheduled run
+    targets the slice we haven't seen yet. ``consecutive_429s`` is a per-run circuit
+    breaker counter (reset to 0 on a successful page fetch).
+
+    Backend-only: no HTTP endpoint exposes this; the pipeline reads/writes it directly.
+    """
+
+    __tablename__ = "category_watermarks"
+
+    category: Mapped[str] = mapped_column(String(64), primary_key=True)
+    watermark_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    consecutive_429s: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class PipelineRun(Base):
