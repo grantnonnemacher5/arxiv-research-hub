@@ -41,6 +41,9 @@ from config import (
     ARXIV_SYNC_STOP_ALL_DUP_STREAK,
     ARXIV_USE_WATERMARK_FRESH,
     BACKFILL_CLASSIFICATION_BATCH_SIZE,
+    INGEST_DEMO_DEEP_START_BLOCK,
+    INGEST_DEMO_MODE,
+    INGEST_DEMO_SKIP_FRESH,
     INGEST_FETCH_PDF,
     INGEST_TIME_BUDGET_SEC,
     OPENAI_API_KEY,
@@ -324,16 +327,13 @@ def _run_fresh_pass(
     *,
     t0: float,
     run_id: int | None,
+    bump_progress: Any,
 ) -> dict[str, Any]:
     """Per-category date-windowed scan honoring watermarks + time budget + 429 breaker.
 
     Returns a dict with cumulative ``saved`` / ``skipped`` and flags consumed by the
     finalizer (``cancelled``, ``save_cap_reached``, ``time_budget_exhausted``,
     ``saw_any_candidates``, ``fetch_meta``).
-
-    Writes live progress to the ``PipelineRun`` row every few papers so the dashboard
-    sees saved / skipped counters tick up while the run is still in flight (without
-    this, the row stays at 0/0 until the pass returns — see PipelineRuns polling).
     """
     saved = 0
     skipped = 0
@@ -348,18 +348,6 @@ def _run_fresh_pass(
         "categories_breaker_tripped": [],
     }
     seen_in_run: set[str] = set()
-    progress_counter = 0
-
-    def write_progress(force: bool = False) -> None:
-        """Push current local saved/skipped to the running PipelineRun row.
-
-        Cheap (single UPDATE by PK); we call it for every paper but only flush
-        to the DB every Nth call to avoid hammering Postgres during fast pages.
-        """
-        nonlocal progress_counter
-        progress_counter += 1
-        if run_id and (force or progress_counter % 5 == 0):
-            _update_pipeline_run_progress(run_id, saved, skipped, t0)
 
     raw_categories = list(ARXIV_QUERIES)
     cat_keys = [_extract_category_key(c) for c in raw_categories]
@@ -491,17 +479,17 @@ def _run_fresh_pass(
                     max_seen_date = pub_date
                 if is_duplicate(aid, db):
                     skipped += 1
-                    write_progress()
+                    bump_progress()
                     continue
                 did_save, conflicted = _save_paper(db, p)
                 if conflicted:
                     skipped += 1
-                    write_progress()
+                    bump_progress()
                     continue
                 if did_save:
                     saved += 1
                     page_new += 1
-                    write_progress(force=True)
+                    bump_progress()
                     logger.info("Ingested %s — %s", aid, (p.get("title") or "")[:80])
                     if saved >= ARXIV_SYNC_MAX_SAVES_PER_RUN:
                         save_cap_reached = True
@@ -663,18 +651,15 @@ def _run_full_pipeline_impl(
         cancelled_early = False
         time_budget_exhausted = False
 
-        if ARXIV_USE_WATERMARK_FRESH:
+        if ARXIV_USE_WATERMARK_FRESH and not INGEST_DEMO_SKIP_FRESH:
             fresh_result = _run_fresh_pass(
                 db,
                 t0=t0,
                 run_id=run_id,
+                bump_progress=bump_progress_checkpoint,
             )
             saved += fresh_result["saved"]
             skipped += fresh_result["skipped"]
-            # Force-flush totals so the running row reflects the fresh pass result
-            # before the optional deep-backfill phase starts (or before finalize).
-            if run_id:
-                _update_pipeline_run_progress(run_id, saved, skipped, t0)
             fetch_meta = fresh_result["fetch_meta"]
             saw_any_candidates = fresh_result["saw_any_candidates"] or saw_any_candidates
             cancelled_early = fresh_result["cancelled"]
@@ -688,6 +673,10 @@ def _run_full_pipeline_impl(
                 save_cap_reached,
                 time_budget_exhausted,
             )
+        elif ARXIV_USE_WATERMARK_FRESH and INGEST_DEMO_SKIP_FRESH:
+            logger.info(
+                "Fresh pass skipped (INGEST_DEMO_SKIP_FRESH) — deep backfill only for demo ingest"
+            )
 
         # Legacy deep offset-block backfill — runs only when explicitly enabled
         # (e.g. a weekly schedule or one-off catch-up). Default daily run uses the
@@ -696,7 +685,14 @@ def _run_full_pipeline_impl(
             not ARXIV_USE_WATERMARK_FRESH or ARXIV_RUN_DEEP_BACKFILL
         ) and not cancelled_early and not save_cap_reached and not time_budget_exhausted
 
-        deep_start = get_next_deep_block() if ARXIV_RESUME_DEEP_SCAN else 1
+        if INGEST_DEMO_MODE:
+            deep_start = INGEST_DEMO_DEEP_START_BLOCK
+            logger.info(
+                "Demo ingest: deep backfill starts at offset block %s (INGEST_DEMO_DEEP_START_BLOCK)",
+                deep_start,
+            )
+        else:
+            deep_start = get_next_deep_block() if ARXIV_RESUME_DEEP_SCAN else 1
         offset_blocks: list[int] = []
         if run_deep_backfill:
             if ARXIV_USE_WATERMARK_FRESH:

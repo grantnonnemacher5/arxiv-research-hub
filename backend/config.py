@@ -138,3 +138,18 @@ CORS_ORIGINS = [
     ).split(",")
     if o.strip()
 ]
+
+# One-off demo / Grant video: deep backfill until ~50 new papers save (turn off after recording).
+# Set INGEST_DEMO_MODE=true on the API host (Hugging Face Space secrets), restart, run Pipeline once,
+# then set false again. Local .env alone does not affect production.
+INGEST_DEMO_MODE = _env_bool("INGEST_DEMO_MODE", False)
+INGEST_DEMO_SKIP_FRESH = _env_bool("INGEST_DEMO_SKIP_FRESH", INGEST_DEMO_MODE)
+INGEST_DEMO_DEEP_START_BLOCK = max(1, int(os.getenv("INGEST_DEMO_DEEP_START_BLOCK", "25")))
+if INGEST_DEMO_MODE:
+    ARXIV_RUN_DEEP_BACKFILL = True
+    ARXIV_SYNC_MAX_OFFSET_BLOCKS = max(ARXIV_SYNC_MAX_OFFSET_BLOCKS, 40)
+    ARXIV_SYNC_MAX_SAVES_PER_RUN = max(ARXIV_SYNC_MAX_SAVES_PER_RUN, 50)
+    ARXIV_SYNC_STOP_ALL_DUP_STREAK = max(ARXIV_SYNC_STOP_ALL_DUP_STREAK, 15)
+    INGEST_TIME_BUDGET_SEC = max(INGEST_TIME_BUDGET_SEC, 2400)
+    ARXIV_PAGE_COUNT = max(ARXIV_PAGE_COUNT, 3)
+    ARXIV_FRESH_MAX_PAGES_PER_CATEGORY = 1
